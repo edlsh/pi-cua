@@ -19,7 +19,6 @@ export interface DesktopTool {
   label: string;
   description: string;
   parameters: Record<string, unknown>;
-  strict?: false;
   annotations?: { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; openWorldHint: boolean };
   execute(id: string, input: unknown, signal: AbortSignal | undefined, onUpdate: unknown, ctx: DesktopContext): Promise<DesktopResult>;
 }
