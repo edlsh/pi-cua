@@ -4,9 +4,10 @@
   "description": "Native macOS desktop control for Pi agents, backed by the in-process cua-driver SDK",
   "type": "module",
   "exports": "./src/index.ts",
-  "files": ["src", "README.md"],
+  "files": ["src", "skills", "README.md"],
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": ["./src/index.ts"],
+    "skills": ["./skills"]
   },
   "scripts": {
     "check": "tsc --noEmit",
