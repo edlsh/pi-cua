@@ -101,8 +101,8 @@ test("index-addressed steps reuse the observed snapshot, add the session label o
   const result = await run("desktop_act", { steps: [{ op: "click", index: 1 }, { op: "type", text: "hi" }, { op: "key", key: "return" }], observe: false });
 
   expect(calls.find(call => call.tool === "list_windows")!.args.session).toBeUndefined();
-  expect(observedSnapshot.session).toBe("omp-default-abc-123");
-  expect(calls.find(call => call.tool === "click")!.args).toEqual({ pid: 10, window_id: 100, element_index: 1, snapshot_id: "s00000001", session: "omp-default-abc-123" });
+  expect(observedSnapshot.session).toBe("pi-default-abc-123");
+  expect(calls.find(call => call.tool === "click")!.args).toEqual({ pid: 10, window_id: 100, element_index: 1, snapshot_id: "s00000001", session: "pi-default-abc-123" });
   expect(calls.some(call => call.tool === "press_key")).toBe(false);
   expect(result.isError).toBe(true);
   expect(result.text).toContain("1. click [1] AXButton \"Save\" → ok effect=confirmed");
@@ -132,7 +132,7 @@ test("a stale index is retried only when a fresh walk shows the same element the
 });
 
 test("ended driver sessions (idle expiry of the label and implicit session, or /desktop reset) are restarted and the call retried", async () => {
-  const LABEL = "omp-default-abc-123";
+  const LABEL = "pi-default-abc-123";
   const ended = new Set<string>();
   const ENDED: Reply = { isError: true, errorCode: "session_ended", text: "this session has ended; call start_session explicitly to reuse its label" };
   handlers.end_session = args => { ended.add(args.session); return {}; };
@@ -306,21 +306,22 @@ test("context pruning keeps the two newest desktop screenshots and leaves other 
   expect(await emit("context", { messages: messages.slice(1) })).toBeUndefined();
 });
 
-test("the prompt nudge follows the extension in OMP and Pi, and /desktop never turns stray words into prompts or toggles", async () => {
+test("the prompt nudge joins Pi's turn guidelines, and /desktop never turns stray words into prompts or toggles", async () => {
   const { emit, command, sent, notices } = load();
-  const nudged = () => emit("before_agent_start", { systemPrompt: ["base"] }) as Promise<{ systemPrompt: string[] } | undefined>;
-
-  expect((await nudged())?.systemPrompt).toEqual(["base", expect.stringContaining("desktop_observe")]);
   // Pi renders a string prompt from per-turn options: the nudge joins its guidelines and nothing replaces the prompt.
-  const piTurn = { systemPrompt: "base", systemPromptOptions: { promptGuidelines: ["existing"] } };
-  expect(await emit("before_agent_start", piTurn)).toBeUndefined();
-  expect(piTurn.systemPromptOptions.promptGuidelines).toEqual(["existing", expect.stringContaining("desktop_observe")]);
+  const nudged = async () => {
+    const turn = { systemPrompt: "base", systemPromptOptions: { promptGuidelines: ["existing"] } };
+    expect(await emit("before_agent_start", turn)).toBeUndefined();
+    return turn.systemPromptOptions.promptGuidelines;
+  };
+
+  expect(await nudged()).toEqual(["existing", expect.stringContaining("desktop_observe")]);
   for (const stray of ["off", "stauts", "Rename the Finder window's selected file to notes.txt", "jev"]) {
     await command(stray);
     expect(notices.at(-1)).toContain("Usage: /desktop");
   }
   expect(sent).toEqual([]);
-  expect((await nudged())?.systemPrompt).toHaveLength(2);
+  expect(await nudged()).toHaveLength(2);
 });
 
 test("JEV acts on a confident pick and declines an uncertain one, sending labels but not typed values", async () => {
@@ -392,7 +393,7 @@ test("session shutdown ends this conversation's driver session and releases the 
   await run("desktop_observe", { action: "state", app: "Notes" });
 
   await emit("session_shutdown");
-  expect(calls.filter(call => call.tool === "end_session").map(call => call.args)).toEqual([{ session: "omp-default-abc-123" }]);
+  expect(calls.filter(call => call.tool === "end_session").map(call => call.args)).toEqual([{ session: "pi-default-abc-123" }]);
   expect(shutdowns).toBe(1);
 });
 

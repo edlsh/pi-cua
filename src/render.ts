@@ -107,7 +107,7 @@ export function renderState(result: DriverResult, options: { menus?: boolean } =
   return [header, ...notes.map(note => `! ${note}`), tree || "(no accessibility tree)"].join("\n");
 }
 
-/** Driver messages name its own tools; point the agent at the omp-desktop call that does the same thing. */
+/** Driver messages name its own tools; point the agent at the pi-desktop call that does the same thing. */
 export function agentHint(text: string): string {
   return text.replace(/\bget_window_state\b( with a screenshot)?/g, (_match, screenshot) => `desktop_observe action=state${screenshot ? " screenshot=true" : ""}`)
     .replace(/ on the same connection/g, "");
@@ -144,7 +144,7 @@ interface PrunableMessage { role?: string; toolName?: string; content?: unknown 
 
 /**
  * Replaces screenshots from `toolNames` results older than the newest `keep` with a short note.
- * Returns undefined when nothing changes, so OMP keeps the original messages (and prompt cache).
+ * Returns undefined when nothing changes, so Pi keeps the original messages (and prompt cache).
  */
 export function pruneScreenshots<T extends PrunableMessage>(messages: T[], toolNames: ReadonlySet<string>, keep: number): T[] | undefined {
   let seen = 0;

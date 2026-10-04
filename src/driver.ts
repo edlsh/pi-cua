@@ -29,12 +29,12 @@ const SESSION_TOOLS = new Set([
   "browser_dialog", "browser_set_input_files", "browser_download", "browser_pointer", "parse_visual_regions",
 ]);
 
-// The in-process runtime is a native dylib shared by every OMP binding (main agent and subagents).
+// The in-process runtime is a native dylib shared by every binding in this process.
 let shared: Promise<CuaDriverLike> | undefined;
 let users = 0;
 
 async function createDriver(): Promise<CuaDriverLike> {
-  if (process.platform !== "darwin") throw new DesktopError("unsupported_platform", "omp-desktop only supports macOS.");
+  if (process.platform !== "darwin") throw new DesktopError("unsupported_platform", "pi-desktop only supports macOS.");
   const { CuaDriver, DriverOptions } = await import("@trycua/cua-driver");
   return CuaDriver.create(DriverOptions.create({ claudeCodeCompatibility: false }));
 }

@@ -5,7 +5,7 @@ import { createAgentSession, SessionManager } from "@earendil-works/pi-coding-ag
 import { getCurrentSystemPrompt, validateToolArguments } from "@earendil-works/pi-ai";
 import { root, withLoader, withSession } from "./pi-harness.mjs";
 
-test("pi discovers the package and its tools without a local loader or OMP runtime", async () => {
+test("pi discovers the package and its tools without a local loader", async () => {
   await withLoader([root], async loader => {
     const { extensions, errors } = loader.getExtensions();
     assert.deepEqual(errors, []);
