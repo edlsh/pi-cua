@@ -32,6 +32,8 @@ The cua-driver SDK ships a Node addon, so no extra install is needed. Load it on
 
 Driver sessions are labeled `pi-<profile>-<session>`, where the profile comes from `PI_PROFILE` (default `default`).
 
+The package bundles the `desktop` agent skill in `skills/desktop`, declared under `pi.skills`. With a local loader, install the package with its extensions filtered out (`"extensions": []` in the package entry of Pi's `settings.json`) to load only the skill.
+
 ## Development
 
 ```sh
