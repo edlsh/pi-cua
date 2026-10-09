@@ -10,7 +10,7 @@ let shutdowns = 0;
 mock.module("@trycua/cua-driver", () => ({
   DriverOptions: { create: (options: unknown) => options },
   CuaDriver: { create: () => ({
-    metadata: async () => ({ driverVersion: "0.29.1", contractVersion: "0.8.0", pid: 1 }),
+    metadata: async () => ({ driverVersion: "0.34.0", contractVersion: "0.8.0", pid: 1 }),
     shutdown: async () => { shutdowns++; },
     listToolsJson: async () => JSON.stringify({ tools: [{ name: "page", inputSchema: { required: ["action", "pid", "window_id"] } }] }),
     callTool: async (tool: string, json: string) => {
@@ -41,7 +41,7 @@ function stateReply(elements: { role: string; label?: string; actions?: string[]
     json: {
       app_name: "Notes", window_title: "Notes", pid: 10, window_id: 100, snapshot_id,
       returned_element_count: elements.length, total_element_count: elements.length, tree_markdown: tree,
-      elements: elements.map((element, element_index) => ({ element_index, ...element })),
+      elements: elements.map((element, element_index) => ({ element_index, element_token: `${snapshot_id}:${element_index}`, ...element })),
     },
   };
 }
@@ -102,7 +102,7 @@ test("index-addressed steps reuse the observed snapshot, add the session label o
 
   expect(calls.find(call => call.tool === "list_windows")!.args.session).toBeUndefined();
   expect(observedSnapshot.session).toBe("pi-default-abc-123");
-  expect(calls.find(call => call.tool === "click")!.args).toEqual({ pid: 10, window_id: 100, element_index: 1, snapshot_id: "s00000001", session: "pi-default-abc-123" });
+  expect(calls.find(call => call.tool === "click")!.args).toEqual({ pid: 10, window_id: 100, element_token: "s00000001:1", session: "pi-default-abc-123" });
   expect(calls.some(call => call.tool === "press_key")).toBe(false);
   expect(result.isError).toBe(true);
   expect(result.text).toContain("1. click [1] AXButton \"Save\" → ok effect=confirmed");
@@ -113,16 +113,16 @@ test("index-addressed steps reuse the observed snapshot, add the session label o
 test("a stale index is retried only when a fresh walk shows the same element there", async () => {
   let fresh: { role: string; label?: string }[] = [{ role: "AXWindow" }, { role: "AXButton", label: "Save" }];
   handlers.get_window_state = () => stateReply(fresh);
-  handlers.click = args => args.snapshot_id === "s00000001" ? { isError: true, errorCode: "stale_element_token", text: "stale snapshot" } : { json: { effect: "confirmed" } };
+  handlers.click = args => args.element_token === "s00000001:1" ? { isError: true, errorCode: "stale_element_token", text: "stale snapshot" } : { json: { effect: "confirmed" } };
   const { run } = load();
   await run("desktop_observe", { action: "state", app: "Notes" });
 
   const retried = await run("desktop_act", { steps: [{ op: "click", index: 1 }], observe: false });
   expect(retried.isError).toBeUndefined();
-  expect(calls.filter(call => call.tool === "click").map(call => call.args.snapshot_id)).toEqual(["s00000001", "s00000002"]);
+  expect(calls.filter(call => call.tool === "click").map(call => call.args.element_token)).toEqual(["s00000001:1", "s00000002:1"]);
 
   fresh = [{ role: "AXWindow" }, { role: "AXButton", label: "Delete" }];
-  handlers.click = args => args.snapshot_id === "s00000002" ? { isError: true, errorCode: "stale_element_token", text: "stale" } : { json: {} };
+  handlers.click = args => args.element_token === "s00000002:1" ? { isError: true, errorCode: "stale_element_token", text: "stale" } : { json: {} };
   const clicksBefore = calls.filter(call => call.tool === "click").length;
   const refused = await run("desktop_act", { steps: [{ op: "click", index: 1 }], observe: false });
   expect(refused.isError).toBe(true);
@@ -159,16 +159,16 @@ test("a screenshot-only observation keeps the tree snapshot that index steps add
 
   const result = await run("desktop_act", { steps: [{ op: "click", index: 1 }], observe: false });
   expect(result.text).toContain("click [1] AXButton \"Save\" → ok");
-  expect(calls.find(call => call.tool === "click")!.args.snapshot_id).toBe("s00000001");
+  expect(calls.find(call => call.tool === "click")!.args.element_token).toBe("s00000001:1");
 
   // The driver may measure the index against its newest snapshot, the empty screenshot-only one: re-walk and retry.
   await run("desktop_observe", { action: "screenshot", app: "Notes" });
-  handlers.click = args => args.snapshot_id === "s00000001"
+  handlers.click = args => args.element_token === "s00000001:1"
     ? { isError: true, errorCode: "invalid_element_token", text: "element_token element_index 1 out of range (snapshot had 0 elements)" }
     : { json: { effect: "confirmed" } };
   const repaired = await run("desktop_act", { steps: [{ op: "click", index: 1 }], observe: false });
   expect(repaired.isError).toBeUndefined();
-  expect(calls.filter(call => call.tool === "click").at(-1)!.args.snapshot_id).toBe("s00000004");
+  expect(calls.filter(call => call.tool === "click").at(-1)!.args.element_token).toBe("s00000004:1");
 });
 
 test("a refused pixel click names the window's newest capture; pixel steps return a screenshot; driver hints name agent tools", async () => {
@@ -346,7 +346,7 @@ test("JEV acts on a confident pick and declines an uncertain one, sending labels
     await command("jev on");
     const acted = await run("desktop_act", { app: "Notes", steps: [{ op: "click", target: "the save button" }], observe: false });
     expect(acted.isError).toBeUndefined();
-    expect(calls.find(call => call.tool === "click")!.args).toMatchObject({ element_index: 1 });
+    expect(calls.find(call => call.tool === "click")!.args).toMatchObject({ element_token: "s00000001:1" });
     expect(JSON.stringify(bodies[0])).toContain("AXTextField (Title)");
     expect(JSON.stringify(bodies[0])).not.toContain("private draft");
 

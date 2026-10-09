@@ -219,7 +219,9 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
       const elementArgs = (at: Target, index: number) => {
         const snapshot = desktop.snapshot(at.pid, at.windowId);
         if (!snapshot) throw new DesktopError("no_snapshot", `No state for window ${at.windowId}. Call desktop_observe action=state first, then use its [N] indices.`);
-        return { pid: at.pid, window_id: at.windowId, element_index: index, snapshot_id: snapshot.snapshotId };
+        const token = snapshot.elements.get(index)?.token;
+        if (!token) throw new DesktopError("invalid_element", `No driver token for element [${index}]. Observe the window again.`);
+        return { pid: at.pid, window_id: at.windowId, element_token: token };
       };
 
       const locate = (at: Target, step: { index?: number; x?: number; y?: number }, required: boolean) => {
@@ -273,19 +275,19 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
       }
 
       /** A stale index is retried once, only if a fresh walk shows the same element at that index. */
-      async function retryStale(tool: string, args: Record<string, unknown>): Promise<DriverResult | undefined> {
-        if (typeof args.element_index !== "number" || !target) return undefined;
+      async function retryStale(tool: string, args: Record<string, unknown>, index: number | undefined): Promise<DriverResult | undefined> {
+        if (index === undefined || !target) return undefined;
         const before = desktop.snapshot(target.pid, target.windowId);
         if (!before) return undefined;
-        const expected = before.elements.get(args.element_index);
+        const expected = before.elements.get(index);
         const fresh = await call(ctx, "get_window_state", { ...before.walk, include_screenshot: false }, signal);
         const after = desktop.snapshot(target.pid, target.windowId);
         if (fresh.isError || !after || after.snapshotId === before.snapshotId) return undefined;
-        const actual = after.elements.get(args.element_index);
+        const actual = after.elements.get(index);
         if (!expected || !actual || expected.role !== actual.role || expected.label !== actual.label) {
-          throw new DesktopError("ui_changed", `Element [${args.element_index}] changed since the last state (was${describeElement(expected)}, now${describeElement(actual) || " missing"}). Observe again.`);
+          throw new DesktopError("ui_changed", `Element [${index}] changed since the last state (was${describeElement(expected)}, now${describeElement(actual) || " missing"}). Observe again.`);
         }
-        return call(ctx, tool, { ...args, snapshot_id: after.snapshotId }, signal);
+        return call(ctx, tool, { ...args, ...elementArgs(target, index) }, signal);
       }
 
       /** JEV mode: Jev picks the control for a plain-language target from a fresh walk; it declines rather than guess. */
@@ -344,10 +346,11 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
           const planned = await request(step);
           if (!planned) { log.push(`${prefix} → ok`); continue; }
           const [tool, args] = planned;
-          const element = typeof args.element_index === "number" ? (snapshot ?? desktop.snapshot(Number(args.pid), Number(args.window_id)))?.elements.get(args.element_index) : undefined;
+          const index = "index" in step ? step.index : undefined;
+          const element = index !== undefined ? (snapshot ?? desktop.snapshot(Number(args.pid), Number(args.window_id)))?.elements.get(index) : undefined;
           let result = await call(ctx, tool, args, signal);
           const refusal = result.isError ? `${result.errorCode ?? ""} ${result.text}` : "";
-          if (STALE_INDEX.test(refusal)) result = (await retryStale(tool, args)) ?? result;
+          if (STALE_INDEX.test(refusal)) result = (await retryStale(tool, args, index)) ?? result;
           // The driver can hold a window's screenshot without owning it in the latest snapshot (e.g. a degraded walk);
           // a click can name that capture, the image the agent's pixels refer to.
           else if (/screenshot_context_missing/.test(refusal) && tool === "click" && args.x !== undefined) {

@@ -19,7 +19,7 @@
   },
   "os": ["darwin"],
   "dependencies": {
-    "@trycua/cua-driver": "0.29.1",
+    "@trycua/cua-driver": "0.34.0",
     "zod": "4.4.3"
   },
   "peerDependencies": {

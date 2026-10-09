@@ -5,7 +5,7 @@
     "": {
       "name": "omp-desktop",
       "dependencies": {
-        "@trycua/cua-driver": "0.29.1",
+        "@trycua/cua-driver": "0.34.0",
         "zod": "4.4.3",
       },
       "devDependencies": {
@@ -166,19 +166,19 @@
 
     "@stablelib/base64": ["@stablelib/base64@1.0.1", "", {}, "sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ=="],
 
-    "@trycua/cua-driver": ["@trycua/cua-driver@0.29.1", "", { "dependencies": { "@ubjs/core": "0.31.0-3", "@ubjs/node": "0.31.0-3" }, "optionalDependencies": { "@trycua/cua-driver-darwin-arm64": "0.29.1", "@trycua/cua-driver-darwin-x64": "0.29.1", "@trycua/cua-driver-linux-arm64-gnu": "0.29.1", "@trycua/cua-driver-linux-x64-gnu": "0.29.1", "@trycua/cua-driver-win32-arm64-msvc": "0.29.1", "@trycua/cua-driver-win32-x64-msvc": "0.29.1" } }, "sha512-gwV/JCEiArAO9dSgyKaZuNkx9fWMTl3dtMMrQD04WSBJvERpuiuvup6HdEJmHdFNBS6a0+yUMv45aLCeLuQU0A=="],
+    "@trycua/cua-driver": ["@trycua/cua-driver@0.34.0", "", { "dependencies": { "@ubjs/core": "0.31.0-3", "@ubjs/node": "0.31.0-3" }, "optionalDependencies": { "@trycua/cua-driver-darwin-arm64": "0.34.0", "@trycua/cua-driver-darwin-x64": "0.34.0", "@trycua/cua-driver-linux-arm64-gnu": "0.34.0", "@trycua/cua-driver-linux-x64-gnu": "0.34.0", "@trycua/cua-driver-win32-arm64-msvc": "0.34.0", "@trycua/cua-driver-win32-x64-msvc": "0.34.0" } }, "sha512-MJs5+z6dM9UnqXZuKCE9uNZPA12QZOI+7wiKjk2ZmTtGox7Scvx1w+7fv6B1CTQV+3/ZR8fVmfEILbq/90WbVg=="],
 
-    "@trycua/cua-driver-darwin-arm64": ["@trycua/cua-driver-darwin-arm64@0.29.1", "", { "os": "darwin", "cpu": "arm64" }, "sha512-k5Rf0sp/5i+exVKq8VOyuzVJ3kLZ5g029RK6g50658bu5jNERrZXIsmrDsR1OGSbRiRpzWdD4TFZjv76VO6C3A=="],
+    "@trycua/cua-driver-darwin-arm64": ["@trycua/cua-driver-darwin-arm64@0.34.0", "", { "os": "darwin", "cpu": "arm64" }, "sha512-UhzOe86Q1cJpl8lagOCgMnnekzbZz7hnvmBU4hDc7apUqnv6BBAJJz2e1DE4CUkNCCF2tkZSHA6xUncTYdnylA=="],
 
-    "@trycua/cua-driver-darwin-x64": ["@trycua/cua-driver-darwin-x64@0.29.1", "", { "os": "darwin", "cpu": "x64" }, "sha512-jCMet+hqfoUR3cVMWURi0XGNGZZfR++jGLeNAhKeKxqjnMlzx4+UdXo6XQIHDm8LWslRgf7ceHY6uVjHH9221g=="],
+    "@trycua/cua-driver-darwin-x64": ["@trycua/cua-driver-darwin-x64@0.34.0", "", { "os": "darwin", "cpu": "x64" }, "sha512-v4Pj3BuQ48d713uIhNjSP5F9hD2zoKtMfJWfii2lx35fJNwJImhDZccxbDjDnAVjIrGICqviGVCrLTq1OiDSaA=="],
 
-    "@trycua/cua-driver-linux-arm64-gnu": ["@trycua/cua-driver-linux-arm64-gnu@0.29.1", "", { "os": "linux", "cpu": "arm64" }, "sha512-u1hnzloplK0gZ6x1zji28IR402NyE76nT3Podxox458eNlt2Zj2FNB9ZBSR3OAfmlPf7GjjicZILR8KcxGEb7Q=="],
+    "@trycua/cua-driver-linux-arm64-gnu": ["@trycua/cua-driver-linux-arm64-gnu@0.34.0", "", { "os": "linux", "cpu": "arm64" }, "sha512-RUygHOF8D20sLgJ1NrVmsb13I3W+XDcOvEnFt5/YTHsXoyWaj2KPneY3mUTONH0/ya25KbVOmI6vObdVZetMyA=="],
 
-    "@trycua/cua-driver-linux-x64-gnu": ["@trycua/cua-driver-linux-x64-gnu@0.29.1", "", { "os": "linux", "cpu": "x64" }, "sha512-5qixpNHiR1u79pLNDfx7wjIk/vQmWzQuu6VzvpShrakBIvx61qG9YaO5ObuSwXY0IetWcJFPqJBd5m7RaoNjxA=="],
+    "@trycua/cua-driver-linux-x64-gnu": ["@trycua/cua-driver-linux-x64-gnu@0.34.0", "", { "os": "linux", "cpu": "x64" }, "sha512-MUe05gFjB9AK1BgMnQQBgRQFBeu6jzBAO7kpc5QbybtcwzbGiXlDDvrtirrWJ+AYJFqvaewE3DPdwT+aC7UL7A=="],
 
-    "@trycua/cua-driver-win32-arm64-msvc": ["@trycua/cua-driver-win32-arm64-msvc@0.29.1", "", { "os": "win32", "cpu": "arm64" }, "sha512-6ValImNddpGdXRDQoSuLcj37NTHRAsfikLz+ebe9GsumdjoNjt5eDOeSnIs2YyiPCeBMD0tbk64NdOvC++WW5g=="],
+    "@trycua/cua-driver-win32-arm64-msvc": ["@trycua/cua-driver-win32-arm64-msvc@0.34.0", "", { "os": "win32", "cpu": "arm64" }, "sha512-xlrck9tP1fD9AQpbWyuF6axnQHRYv8hM+iV7j5vI8yP3HCQl3bsGmvXa9r230d6A7zGqr5dHvbVPFw8y5gVvnQ=="],
 
-    "@trycua/cua-driver-win32-x64-msvc": ["@trycua/cua-driver-win32-x64-msvc@0.29.1", "", { "os": "win32", "cpu": "x64" }, "sha512-Ce6bLMtHfVAdBZe3dSORTBtgd7gTQWeU5ivkiF2Zl9dfzYgjgnl/gElT5OTAHl7oMCLSjiYyrcVxWFYmPwGcbA=="],
+    "@trycua/cua-driver-win32-x64-msvc": ["@trycua/cua-driver-win32-x64-msvc@0.34.0", "", { "os": "win32", "cpu": "x64" }, "sha512-BzdQ9rSOvekEdHLwEpYOaNAYRVXwav9cNnaR4traNmKPLkr+IvhQZv5K6CDGMM20O2S9q7lHG6k8n6jHA4zqHg=="],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 

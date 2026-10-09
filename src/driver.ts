@@ -52,7 +52,7 @@ export interface Snapshot {
   pid: number;
   windowId: number;
   snapshotId: string;
-  elements: Map<number, { role?: string; label?: string }>;
+  elements: Map<number, { role?: string; label?: string; token?: string }>;
   /** Tree-walk arguments that produced this snapshot; re-walking with them keeps indices comparable. */
   walk: Record<string, unknown>;
 }
@@ -123,9 +123,9 @@ export class DesktopBackend {
     else this.#captures.delete(`${pid}:${windowId}`);
     // A screenshot-only walk still mints a snapshot, but with no elements; keep the last tree so indices stay usable.
     if (args.include_accessibility_tree === false || typeof state.snapshot_id !== "string" || !Array.isArray(state.elements)) return;
-    const elements = new Map<number, { role?: string; label?: string }>();
+    const elements = new Map<number, { role?: string; label?: string; token?: string }>();
     for (const element of state.elements) {
-      if (typeof element?.element_index === "number") elements.set(element.element_index, { role: element.role, label: element.label });
+      if (typeof element?.element_index === "number") elements.set(element.element_index, { role: element.role, label: element.label, token: element.element_token });
     }
     const { include_screenshot: _image, max_image_dimension: _size, session: _session, ...walk } = args;
     this.#snapshots.set(`${pid}:${windowId}`, { pid, windowId, snapshotId: state.snapshot_id, elements, walk });
