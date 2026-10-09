@@ -16,6 +16,8 @@ const DEFAULT_TIMEOUT_MS = 3000;
 const DEFAULT_IMAGE_DIMENSION = 1280;
 // Jev needs the whole window to choose from, not the agent-facing default budget.
 const JEV_MAX_ELEMENTS = 600;
+const QUERY_MAX_ELEMENTS = 1500;
+const QUERY_TIMEOUT_MS = 6000;
 const LAUNCH_WINDOW_POLLS = 16;
 const LAUNCH_POLL_MS = 250;
 // Host configuration and opaque replay stay out of agent reach.
@@ -62,7 +64,7 @@ function stepLabel(step: Step): string {
     case "type": return `type ${JSON.stringify(step.text.length > 40 ? `${step.text.slice(0, 40)}…` : step.text)}${where}`;
     case "set_value": return `set_value${where}`;
     case "key": return `key ${[...(step.modifiers ?? []), step.key].join("+")}${where}`;
-    case "hotkey": return `hotkey ${step.keys.join("+")}`;
+    case "hotkey": return `hotkey ${step.keys.join("+")}${where}`;
     case "scroll": return `scroll ${step.direction}${step.amount ? ` ${step.amount}` : ""}${where}`;
     case "drag": return `drag ${step.from.join(",")}→${step.to.join(",")}`;
     case "menu": return `menu ${step.path.join(" › ")}`;
@@ -202,8 +204,14 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
         }
         case "state": {
           const target = await resolveTarget(ctx, params, signal);
-          const result = await checked(ctx, "get_window_state", stateArgs(target, params), signal);
-          return output(renderState(result, params), { action: params.action, ...target, snapshotId: result.json?.snapshot_id }, result.images);
+          let result = await checked(ctx, "get_window_state", stateArgs(target, params), signal);
+          let note: string | undefined;
+          // A query filters only the nodes the walk reached; when the default budget cut the walk before any match, look deeper once.
+          if (params.query && params.max_elements === undefined && result.json?.truncated && !Number(result.json?.returned_element_count)) {
+            result = await checked(ctx, "get_window_state", stateArgs(target, { ...params, max_elements: QUERY_MAX_ELEMENTS, timeout_ms: Math.max(params.timeout_ms ?? DEFAULT_TIMEOUT_MS, QUERY_TIMEOUT_MS) }), signal);
+            note = `no match in the first ${DEFAULT_MAX_ELEMENTS} nodes, so searched up to ${QUERY_MAX_ELEMENTS}`;
+          }
+          return output(renderState(result, { ...params, note }), { action: params.action, ...target, snapshotId: result.json?.snapshot_id }, result.images);
         }
       }
     }
@@ -254,7 +262,7 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
             return ["set_value", { ...elementArgs(at, step.index), value: step.value }];
           }
           case "key": return ["press_key", { ...locate(at, step, false), key: step.key, ...(step.modifiers ? { modifiers: step.modifiers } : {}), ...delivery(step) }];
-          case "hotkey": return ["hotkey", { pid: at.pid, window_id: at.windowId, keys: step.keys, ...delivery(step) }];
+          case "hotkey": return ["hotkey", { ...locate(at, step, false), keys: step.keys, ...delivery(step) }];
           case "scroll": return ["scroll", { ...locate(at, step, false), direction: step.direction, ...(step.amount ? { amount: step.amount } : {}), ...(step.by ? { by: step.by } : {}), ...delivery(step) }];
           case "drag": return ["drag", { pid: at.pid, window_id: at.windowId, from_x: step.from[0], from_y: step.from[1], to_x: step.to[0], to_y: step.to[1], ...(step.duration_ms !== undefined ? { duration_ms: step.duration_ms } : {}), ...(step.modifiers ? { modifier: step.modifiers } : {}), delivery_mode: step.delivery ?? "foreground" }];
           case "menu": return ["invoke_menu", { pid: at.pid, window_id: at.windowId, path: step.path }];

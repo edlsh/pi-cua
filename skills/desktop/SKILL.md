@@ -26,7 +26,7 @@ or synthetic shell input.
    checked; `unknown` is inconclusive, so read the state.
 
 Prefer `set_value` for text fields, `menu` for menu-bar commands (the app must be able to become frontmost; else use
-`hotkey`), and `hotkey` for shortcuts.
+`hotkey`), and `hotkey` for shortcuts; give an editing chord such as cmd+a the field's `index` so it lands there.
 
 ## Screenshots
 

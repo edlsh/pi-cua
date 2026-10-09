@@ -524,3 +524,48 @@ test("unencodable oversized screenshots fail visibly instead of forwarding an ov
   expect(result.text).toContain("screenshot_encoding_failed");
   expect(result.text).toContain("max_image_dimension");
 });
+
+test("rendered state keeps one row per element: custom actions collapse, long values are capped unless queried", async () => {
+  const rows = Array.from({ length: 60 }, (_, row) => `Row ${row + 1}`).join("\n");
+  const tree = `- [0] AXWindow "Mail"\n  - [1] AXRow [actions=[name:read\ntarget:0x0\nselector:(null),name:delete\ntarget:0x0\nselector:(null)]]\n  - [2] AXTextArea = "${rows}" (Body) [actions=[showmenu]]\n  - [3] AXButton "Send" [actions=[press]]\n  - [4] AXStaticText (${"Event notes ".repeat(80)}) [actions=[showmenu]]`;
+  handlers.get_window_state = () => stateReply([{ role: "AXWindow" }, { role: "AXRow" }, { role: "AXTextArea", label: "Body" }, { role: "AXButton", label: "Send" }, { role: "AXStaticText" }], tree);
+  const { run } = load();
+  const state = await run("desktop_observe", { action: "state", pid: 10, window_id: 100 });
+  expect(state.text).toContain("- [1] AXRow [actions=[read,delete]]");
+  expect(state.text).not.toContain("target:0x0");
+  expect(state.text).toMatch(/- \[2\] AXTextArea = "Row 1\\nRow 2\\n.*…" \(\+\d+ chars; query this control for the full value\) \(Body\)/);
+  expect(state.text).toContain("\n  - [3] AXButton \"Send\"");
+  expect(state.text).toMatch(/- \[4\] AXStaticText \(Event notes .*… \(\+\d+ chars; query this control for all of it\) \[actions=\[showmenu\]\]$/m);
+  expect(state.text.split("\n").every((line: string) => line.length < 700)).toBe(true);
+  const queried = await run("desktop_observe", { action: "state", pid: 10, window_id: 100, query: "Body" });
+  expect(queried.text).toContain("Row 60\" (Body)");
+});
+
+test("hotkey can focus an element first, so editing chords land in that field", async () => {
+  handlers.get_window_state = () => stateReply([{ role: "AXWindow" }, { role: "AXTextField", label: "Name" }]);
+  const { run } = load();
+  await run("desktop_observe", { action: "state", pid: 10, window_id: 100 });
+  const result = await run("desktop_act", { steps: [{ op: "hotkey", keys: ["cmd", "a"], index: 1, delivery: "foreground" }], observe: false });
+  expect(result.isError).toBeUndefined();
+  const hotkey = calls.find(call => call.tool === "hotkey")!.args;
+  expect(hotkey.element_token).toMatch(/:1$/);
+  expect(hotkey.delivery_mode).toBe("foreground");
+});
+
+test("a query cut off by the default walk budget searches deeper once and says so", async () => {
+  handlers.get_window_state = args => {
+    const reply = args.max_elements > 150
+      ? stateReply([{ role: "AXWindow" }, { role: "AXButton", label: "Archive" }], "- [0] AXWindow \"Mail\"\n  - [1] AXButton \"Archive\"")
+      : stateReply([], "");
+    return { json: { ...reply.json, truncated: args.max_elements <= 150, returned_element_count: args.max_elements > 150 ? 2 : 0 } };
+  };
+  const { run } = load();
+  const found = await run("desktop_observe", { action: "state", pid: 10, window_id: 100, query: "Archive" });
+  expect(found.text).toContain("[1] AXButton \"Archive\"");
+  expect(found.text).toContain("searched up to 1500");
+  expect(calls.filter(call => call.tool === "get_window_state").map(call => call.args.max_elements)).toEqual([150, 1500]);
+  // An explicit budget is the agent's choice: no second walk.
+  calls.length = 0;
+  await run("desktop_observe", { action: "state", pid: 10, window_id: 100, query: "Archive", max_elements: 100 });
+  expect(calls.filter(call => call.tool === "get_window_state")).toHaveLength(1);
+});

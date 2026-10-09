@@ -76,7 +76,7 @@ test("live pi desktop: isolated native window, observations, images, actions, re
       assert.match(state.text, /pi ✓ 日本語/);
       state = ok(await run("desktop_act", { ...target, steps: [
         { op: "type", index: indexOf(state.text, "AXTextField", "Test input"), text: "discard" },
-        { op: "hotkey", keys: ["cmd", "a"], delivery: "foreground" }, { op: "wait", ms: 100 }, { op: "type", text: "typed ✓" }, { op: "key", key: "tab", delivery: "foreground" },
+        { op: "hotkey", keys: ["cmd", "a"], index: indexOf(state.text, "AXTextField", "Test input"), delivery: "foreground" }, { op: "wait", ms: 100 }, { op: "type", text: "typed ✓" }, { op: "key", key: "tab", delivery: "foreground" },
       ] }));
       assert.match(state.text, /AXTextField = "typed ✓" \(Test input\)/);
       state = ok(await run("desktop_act", { ...target, steps: [{ op: "scroll", index: indexOf(state.text, "AXTextArea", "Test rows"), direction: "down", amount: 3, by: "line" }] }));

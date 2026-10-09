@@ -85,7 +85,40 @@ function showValues(tree: string, elements: unknown): string {
   }).join("\n");
 }
 
-export function renderState(result: DriverResult, options: { menus?: boolean } = {}): string {
+const VALUE_CHAR_LIMIT = 300;
+const TREE_ROW = /^\s*- /;
+// AppKit custom actions arrive as an unresolved selector dump; their name is the only useful part.
+const CUSTOM_ACTION = /name:([^\n,\]]*)\ntarget:0x[0-9a-fA-F]+\nselector:\(null\)/g;
+const QUOTED_VALUE = / = "(.*?)"(?=$| \(| \[)/;
+
+/**
+ * One row per element: collapses custom-action dumps, folds multi-line values into their row as \n,
+ * drops fragments before the first row (a query can cut a row mid-value), and caps long values.
+ */
+function normalizeTree(tree: string, valueLimit = VALUE_CHAR_LIMIT): string {
+  const rows: string[] = [];
+  for (const line of tree.replace(CUSTOM_ACTION, "$1").split("\n")) {
+    if (TREE_ROW.test(line)) rows.push(line);
+    else if (rows.length) rows[rows.length - 1] += `\\n${line}`;
+  }
+  if (!Number.isFinite(valueLimit)) return rows.join("\n");
+  return rows.map(row => capRow(row.replace(QUOTED_VALUE, (match, value: string) =>
+    value.length > valueLimit ? ` = "${value.slice(0, valueLimit)}…" (+${value.length - valueLimit} chars; query this control for the full value)` : match))).join("\n");
+}
+
+const ROW_CHAR_LIMIT = 500;
+const ROW_ATTRIBUTES = / \[(?:[a-z_]+=[^\n]*)\]$/;
+
+/** Long labels (e.g. a calendar event's whole description) are cut in the middle; the row keeps its index, role, and actions. */
+function capRow(row: string): string {
+  if (row.length <= ROW_CHAR_LIMIT) return row;
+  const tail = ROW_ATTRIBUTES.exec(row)?.[0] ?? "";
+  const keep = tail.length < ROW_CHAR_LIMIT / 2 ? tail : "";
+  const head = row.slice(0, ROW_CHAR_LIMIT - keep.length);
+  return `${head}… (+${row.length - head.length - keep.length} chars; query this control for all of it)${keep}`;
+}
+
+export function renderState(result: DriverResult, options: { menus?: boolean; query?: string; note?: string } = {}): string {
   const json = result.json ?? {};
   const header = [
     `${json.app_name ?? "?"} ${quote(json.window_title)} pid=${json.pid} window_id=${json.window_id}`,
@@ -93,12 +126,14 @@ export function renderState(result: DriverResult, options: { menus?: boolean } =
     // total_element_count counts only what the walk reached, so N/N would read as complete after a cut walk.
     json.returned_element_count !== undefined ? `elements=${json.returned_element_count}${json.truncated ? " (partial)" : `/${json.total_element_count ?? "?"}`}` : "",
   ].filter(Boolean).join(" ");
-  const notes: string[] = [];
+  const notes: string[] = options.note ? [options.note] : [];
   if (json.truncated) notes.push(`truncated (${json.truncation_reason ?? "budget"})${json.nodes_pending ? `: ${json.nodes_pending}+ nodes not walked` : ""}; use query to target a control, or raise max_elements/timeout_ms`);
   if (json.degraded) notes.push(`degraded: ${json.degraded_reason ?? "unknown"}`);
   if (json.escalation) notes.push(`escalation: ${compact(json.escalation)}`);
   if (json.screenshot_width) notes.push(`screenshot ${json.screenshot_width}x${json.screenshot_height} (x,y are pixels of this image)`);
-  let tree = redactTree(String(json.tree_markdown ?? "").split("\n").filter(line => !DRIVER_PARTIAL_NOTE.test(line)).join("\n").trimEnd());
+  const raw = String(json.tree_markdown ?? "").split("\n").filter(line => !DRIVER_PARTIAL_NOTE.test(line)).join("\n").trimEnd();
+  // A query names the control the agent wants to read, so it gets full values.
+  let tree = redactTree(normalizeTree(raw, options.query ? Infinity : VALUE_CHAR_LIMIT));
   tree = showValues(tree, json.elements);
   if (!options.menus) tree = foldMenuBar(tree);
   if (tree.length > TREE_CHAR_LIMIT) {
