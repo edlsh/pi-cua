@@ -1,4 +1,5 @@
 import type { CuaDriverLike, DriverMetadata } from "@trycua/cua-driver";
+import sharp from "sharp";
 
 export const SUPPORTED_CONTRACT = "0.8.";
 
@@ -18,6 +19,26 @@ export class DesktopError extends Error {
     super(message);
     this.name = "DesktopError";
   }
+}
+
+const MAX_SCREENSHOT_BASE64_BYTES = 1_000_000;
+
+async function compressScreenshot(image: DriverImage): Promise<DriverImage> {
+  if (image.data.length <= MAX_SCREENSHOT_BASE64_BYTES) return image;
+  const input = Buffer.from(image.data, "base64");
+  try {
+    // Re-encode without resizing: screenshots and driver click coordinates must agree.
+    for (const quality of [85, 70, 55]) {
+      const encoded = await sharp(input, { limitInputPixels: 32_000_000 })
+        .webp({ quality })
+        .toBuffer();
+      const data = encoded.toString("base64");
+      if (data.length <= MAX_SCREENSHOT_BASE64_BYTES) return { data, mimeType: "image/webp" };
+    }
+  } catch {
+    throw new DesktopError("screenshot_encoding_failed", "Could not compress the screenshot. Request a smaller max_image_dimension.");
+  }
+  throw new DesktopError("screenshot_too_large", "Screenshot exceeds the 1 MB inline image budget. Request a smaller max_image_dimension.");
 }
 
 // Tools whose schema accepts a `session` label. Other tools reject unknown fields.
@@ -108,7 +129,7 @@ export class DesktopBackend {
     const parsed = parseJson(raw.structuredJson);
     const result: DriverResult = {
       tool, text: raw.text ?? "", json: parsed, isError: raw.isError,
-      images: raw.images.filter(image => image.dataBase64).map(image => ({ data: image.dataBase64, mimeType: image.mimeType || "image/png" })),
+      images: await Promise.all(raw.images.filter(image => image.dataBase64).map(image => compressScreenshot({ data: image.dataBase64, mimeType: image.mimeType || "image/png" }))),
       ...(raw.errorCode ? { errorCode: raw.errorCode } : {}),
     };
     if (tool === "get_window_state" && parsed && !raw.isError) this.#remember(parsed, args);

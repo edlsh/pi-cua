@@ -491,3 +491,36 @@ test("launch targets a unique visible window rather than a returned helper windo
   expect(result.isError).toBeUndefined();
   expect(calls.find(call => call.tool === "hotkey")!.args.window_id).toBe(420);
 });
+
+test("large screenshots fit the inline byte budget without changing pixel coordinates", async () => {
+  const { default: sharp } = await import("sharp");
+  const input = await sharp({ create: { width: 1000, height: 600, channels: 3, background: "#406080" } })
+    .png({ compressionLevel: 0 }).toBuffer();
+  expect(input.toString("base64").length).toBeGreaterThan(1_000_000);
+  handlers.get_window_state = () => ({ ...stateReply([]), image: input.toString("base64") });
+  const { run } = load();
+  const result = await run("desktop_observe", { action: "screenshot", pid: 10, window_id: 100 });
+  expect(result.isError).toBeUndefined();
+  const image = result.content.find((part: any) => part.type === "image");
+  expect(image.mimeType).toBe("image/webp");
+  expect(image.data.length).toBeLessThanOrEqual(1_000_000);
+  const decoded = sharp(Buffer.from(image.data, "base64"));
+  const metadata = await decoded.metadata();
+  expect([metadata.width, metadata.height]).toEqual([1000, 600]);
+  const { data } = await decoded.raw().toBuffer({ resolveWithObject: true });
+  for (const [index, expected] of [64, 96, 128].entries()) expect(Math.abs(data[index] - expected)).toBeLessThan(8);
+
+  const small = (await sharp({ create: { width: 20, height: 20, channels: 3, background: "white" } }).png().toBuffer()).toString("base64");
+  handlers.get_window_state = () => ({ ...stateReply([]), image: small });
+  const unchanged = await run("desktop_observe", { action: "screenshot", pid: 10, window_id: 100 });
+  expect(unchanged.content.find((part: any) => part.type === "image").data).toBe(small);
+});
+
+test("unencodable oversized screenshots fail visibly instead of forwarding an oversized image", async () => {
+  handlers.get_window_state = () => ({ ...stateReply([]), image: "A".repeat(1_000_004) });
+  const { run } = load();
+  const result = await run("desktop_observe", { action: "screenshot", pid: 10, window_id: 100 });
+  expect(result.isError).toBe(true);
+  expect(result.text).toContain("screenshot_encoding_failed");
+  expect(result.text).toContain("max_image_dimension");
+});
