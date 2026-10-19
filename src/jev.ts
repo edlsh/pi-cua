@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-// Chooser and tournament follow omp-browserbase's jev.ts; only the question and candidate source differ.
+// Chooser and tournament follow pi-browse's jev.ts; only the question and candidate source differ.
 export const JEV_MODEL = "typesafe-ai/jev";
 const JEV_URL = "https://ai-gateway.vercel.sh/typesafe/v1/systemone";
 /** Small chunks are cheaper and fail less often at the gateway: 32 options plus NONE is ~1.8k tokens. */

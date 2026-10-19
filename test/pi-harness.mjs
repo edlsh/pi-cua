@@ -7,7 +7,7 @@ import { createAgentSession, DefaultResourceLoader, SessionManager, SettingsMana
 
 export const root = fileURLToPath(new URL("../", import.meta.url));
 export async function withLoader(paths, work) {
-  const dir = await mkdtemp(join(tmpdir(), "pi-desktop-"));
+  const dir = await mkdtemp(join(tmpdir(), "pi-cua-"));
   const settingsManager = SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false }, cacheWarming: "off" });
   const loader = new DefaultResourceLoader({ cwd: dir, agentDir: dir, settingsManager,
     noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true,

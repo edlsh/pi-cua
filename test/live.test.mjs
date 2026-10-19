@@ -44,10 +44,10 @@ test("live pi desktop: isolated native window, observations, images, actions, re
       let windows;
       for (let attempt = 0; attempt < 30; attempt++) {
         windows = ok(await run("desktop_observe", { action: "windows", pid: child.pid, all: true }));
-        if (windows.text.includes("pi-desktop Test Fixture")) break;
+        if (windows.text.includes("pi-cua Test Fixture")) break;
         await sleep(100);
       }
-      const windowId = Number(windows.text.split("\n").find(line => line.includes("pi-desktop Test Fixture"))?.match(/window_id=(\d+)/)?.[1]);
+      const windowId = Number(windows.text.split("\n").find(line => line.includes("pi-cua Test Fixture"))?.match(/window_id=(\d+)/)?.[1]);
       assert.ok(Number.isFinite(windowId), windows.text);
       const target = { pid: child.pid, window_id: windowId };
       assert.match(ok(await run("desktop_observe", { action: "apps" })).text, /DesktopFixture/);
@@ -95,14 +95,14 @@ test("live pi desktop: isolated native window, observations, images, actions, re
       const sliderValue = text => Number(text.match(/AXSlider \(Test slider\) = "([\d.]+)"/)?.[1]);
       assert.equal(sliderValue(state.text), 2, state.text);
       const bounds = ok(await run("desktop_observe", { action: "windows", pid: child.pid, all: true })).text.split("\n")
-        .find(line => line.includes("pi-desktop Test Fixture")).match(/(\d+)x(\d+)\+/).slice(1).map(Number);
+        .find(line => line.includes("pi-cua Test Fixture")).match(/(\d+)x(\d+)\+/).slice(1).map(Number);
       const shot = await run("desktop_observe", { action: "screenshot", ...target, max_image_dimension: 800 });
       const pixels = Buffer.from(shot.content.find(part => part.type === "image").data, "base64").readUInt32BE(16) / bounds[0];
       const sliderY = (bounds[1] - 294) * pixels; // the slider's center sits 294pt above the window's bottom edge
       state = ok(await run("desktop_act", { ...target, steps: [{ op: "drag", from: [104 * pixels, sliderY], to: [344 * pixels, sliderY], duration_ms: 300 }, { op: "wait", ms: 200 }] }));
       assert.ok(sliderValue(state.text) > 6, state.text);
       state = ok(await run("desktop_act", { ...target, steps: [{ op: "resize", x: 200, y: 200, width: 700, height: 550 }, { op: "wait", ms: 500 }] }));
-      const resized = ok(await run("desktop_observe", { action: "windows", pid: child.pid, all: true })).text.split("\n").find(line => line.includes("pi-desktop Test Fixture"));
+      const resized = ok(await run("desktop_observe", { action: "windows", pid: child.pid, all: true })).text.split("\n").find(line => line.includes("pi-cua Test Fixture"));
       const dimensions = resized.match(/(\d+)x(\d+)\+(\d+)\+(\d+)/);
       assert.ok(dimensions, resized);
       assert.ok([700, 550, 200, 200].every((value, index) => Math.abs(Number(dimensions[index + 1]) - value) <= 2), resized);
