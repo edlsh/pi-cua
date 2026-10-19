@@ -1,4 +1,5 @@
 import type { CuaDriverLike, DriverMetadata } from "@trycua/cua-driver";
+import { execFile } from "node:child_process";
 import sharp from "sharp";
 
 export const SUPPORTED_CONTRACT = "0.8.";
@@ -50,14 +51,45 @@ const SESSION_TOOLS = new Set([
   "browser_dialog", "browser_set_input_files", "browser_download", "browser_pointer", "parse_visual_regions",
 ]);
 
-// The in-process runtime is a native dylib shared by every binding in this process.
-let shared: Promise<CuaDriverLike> | undefined;
-let users = 0;
+// Since 0.35 a get_window_state read returns only compact markdown. Snapshots need the structured `elements`
+// (element tokens, values), and truncation notes need the walk diagnostics that `verbose` restores.
+const STATE_DEFAULTS = { tree_format: "both", verbose: true };
 
+// One connection to the CuaDriver.app daemon for the life of this process. The daemon binds a session label to the
+// connection that started it, so reconnecting after /reload could not revive this conversation's label. Pi re-imports
+// extension modules on /reload, so the connection lives on globalThis rather than in module state.
+const CONNECTION = Symbol.for("pi-cua.cua-driver");
+const connections = globalThis as { [CONNECTION]?: Promise<CuaDriverLike> };
+
+const DAEMON_START_MS = 15_000;
+
+// The CuaDriver.app daemon owns the Accessibility/Screen Recording grants and draws the agent cursor. Start it through
+// LaunchServices when it is not running, so macOS attributes it to the app; never fall back to the in-process runtime.
 async function createDriver(): Promise<CuaDriverLike> {
-  if (process.platform !== "darwin") throw new DesktopError("unsupported_platform", "pi-desktop only supports macOS.");
-  const { CuaDriver, DriverOptions } = await import("@trycua/cua-driver");
-  return CuaDriver.create(DriverOptions.create({ claudeCodeCompatibility: false }));
+  if (process.platform !== "darwin") throw new DesktopError("unsupported_platform", "pi-cua only supports macOS.");
+  const { CuaDriver } = await import("@trycua/cua-driver");
+  const driver = CuaDriver.connect(undefined);
+  if (driver.isAvailable()) return driver;
+  const launched = await new Promise<boolean>(resolve => {
+    execFile("/usr/bin/open", ["-n", "-g", "-a", "CuaDriver", "--args", "serve"], error => resolve(!error));
+  });
+  if (launched) {
+    for (const deadline = Date.now() + DAEMON_START_MS; Date.now() < deadline;) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      if (driver.isAvailable()) return driver;
+    }
+  }
+  throw new DesktopError("driver_unavailable", launched
+    ? "CuaDriver.app did not start serving within 15 s. Check `cua-driver status` and `cua-driver doctor`."
+    : "CuaDriver.app is not installed. Install it with the official installer (https://cua.ai/driver/install.sh), then grant permissions with `cua-driver permissions grant`.");
+}
+
+// The daemon throws some refusals (e.g. `permissions_pending` until macOS grants land) instead of returning an error
+// result; the thrown DriverError's message is only its variant name, so surface the inner message and code.
+function driverError(error: unknown): unknown {
+  const message = (error as { inner?: { message?: unknown } })?.inner?.message;
+  if (typeof message !== "string") return error;
+  return new DesktopError(/^([a-z_]+):/.exec(message)?.[1] ?? "driver_error", message);
 }
 
 function parseJson(raw: string | undefined): Record<string, any> | undefined {
@@ -90,9 +122,9 @@ export class DesktopBackend {
 
   async #acquire(): Promise<CuaDriverLike> {
     if (this.#driver) return this.#driver;
-    shared ??= createDriver().catch(error => { shared = undefined; throw error; });
-    const driver = await shared;
-    if (!this.#driver) { this.#driver = driver; users++; }
+    connections[CONNECTION] ??= createDriver().catch(error => { connections[CONNECTION] = undefined; throw error; });
+    const driver = await connections[CONNECTION];
+    this.#driver ??= driver;
     return driver;
   }
 
@@ -114,17 +146,27 @@ export class DesktopBackend {
   async call(tool: string, args: Record<string, unknown>, session: string, signal?: AbortSignal): Promise<DriverResult> {
     signal?.throwIfAborted();
     const driver = await this.#acquire();
-    const payload = SESSION_TOOLS.has(tool) && args.session === undefined ? { ...args, session } : args;
+    const shaped = tool === "get_window_state" ? { ...STATE_DEFAULTS, ...args } : args;
+    const payload = SESSION_TOOLS.has(tool) && shaped.session === undefined ? { ...shaped, session } : shaped;
     if (payload.session === session) this.#sessions.add(session);
     const json = JSON.stringify(payload);
     const options = signal ? { signal } : undefined;
-    let raw = await driver.callTool(tool, json, options);
+    const callTool = (name: string, body: string) => driver.callTool(name, body, options).catch(error => {
+      // The daemon throws an ended session (numeric code, plain message) that the in-process runtime returned as a
+      // `session_ended` result; restore that result so the revive below handles both.
+      const message = (error as { inner?: { message?: unknown } })?.inner?.message;
+      if (typeof message === "string" && message.startsWith("session has ended")) {
+        return { text: message, isError: true, errorCode: "session_ended", images: [] } as unknown as Awaited<ReturnType<CuaDriverLike["callTool"]>>;
+      }
+      throw driverError(error);
+    });
+    let raw = await callTool(tool, json);
     // The driver ends a session after 300 s idle, both our label and the transport's implicit one that unlabeled
     // tools (list_windows, list_apps) use; /desktop reset ends the label. Ordinary calls never revive either.
     if (raw.errorCode === "session_ended") {
       const revive = typeof payload.session === "string" ? { session: payload.session } : {};
-      const revived = await driver.callTool("start_session", JSON.stringify(revive), options);
-      if (!revived.isError) raw = await driver.callTool(tool, json, options);
+      const revived = await callTool("start_session", JSON.stringify(revive));
+      if (!revived.isError) raw = await callTool(tool, json);
     }
     const parsed = parseJson(raw.structuredJson);
     const result: DriverResult = {
@@ -161,10 +203,10 @@ export class DesktopBackend {
   }
 
   status() {
-    return { loaded: Boolean(this.#driver), sessions: [...this.#sessions], snapshots: this.#snapshots.size, sharedUsers: users };
+    return { loaded: Boolean(this.#driver), sessions: [...this.#sessions], snapshots: this.#snapshots.size };
   }
 
-  /** Ends this binding's driver sessions and forgets its snapshots. Keeps the shared runtime loaded. */
+  /** Ends this binding's driver sessions and forgets its snapshots. Keeps the shared connection. */
   async reset(): Promise<void> {
     const driver = this.#driver;
     const sessions = [...this.#sessions];
@@ -176,15 +218,10 @@ export class DesktopBackend {
     await Promise.allSettled(sessions.map(session => driver.callTool("end_session", JSON.stringify({ session }))));
   }
 
-  /** Ends sessions and releases the shared runtime when no other binding uses it. */
+  /** Ends this binding's sessions and detaches it. The process keeps its daemon connection; the daemon keeps running. */
   async shutdown(): Promise<void> {
     await this.reset();
-    const driver = this.#driver;
-    if (!driver) return;
     this.#driver = undefined;
     this.#metadata = undefined;
-    if (--users > 0) return;
-    shared = undefined;
-    await driver.shutdown();
   }
 }

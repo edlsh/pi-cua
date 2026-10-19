@@ -142,7 +142,7 @@ export function renderState(result: DriverResult, options: { menus?: boolean; qu
   return [header, ...notes.map(note => `! ${note}`), tree || "(no accessibility tree)"].join("\n");
 }
 
-/** Driver messages name its own tools; point the agent at the pi-desktop call that does the same thing. */
+/** Driver messages name its own tools; point the agent at the pi-cua call that does the same thing. */
 export function agentHint(text: string): string {
   return text.replace(/\bget_window_state\b( with a screenshot)?/g, (_match, screenshot) => `desktop_observe action=state${screenshot ? " screenshot=true" : ""}`)
     .replace(/ on the same connection/g, "");

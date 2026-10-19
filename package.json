@@ -1,10 +1,24 @@
 {
-  "name": "pi-desktop",
+  "name": "@edlsh/pi-cua",
   "version": "0.1.0",
-  "description": "Native macOS desktop control for Pi agents, backed by the in-process cua-driver SDK",
+  "description": "Native macOS desktop control for Pi agents, backed by the cua-driver CuaDriver.app daemon",
   "type": "module",
+  "keywords": ["pi-package", "pi", "pi-coding-agent", "extension", "macos", "desktop", "computer-use", "cua"],
+  "author": "Enzo Lucchesi <enzo@edl.sh>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/edlsh/pi-cua.git"
+  },
+  "bugs": {
+    "url": "https://github.com/edlsh/pi-cua/issues"
+  },
+  "homepage": "https://github.com/edlsh/pi-cua#readme",
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": "./src/index.ts",
-  "files": ["src", "skills", "README.md"],
+  "files": ["src", "skills", "README.md", "LICENSE"],
   "pi": {
     "extensions": ["./src/index.ts"],
     "skills": ["./skills"]
@@ -19,17 +33,17 @@
   },
   "os": ["darwin"],
   "dependencies": {
-    "@trycua/cua-driver": "0.34.0",
-    "sharp": "0.35.4",
-    "zod": "4.4.3"
+    "@trycua/cua-driver": "0.36.0",
+    "sharp": "0.35.5",
+    "zod": "4.6.7"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "1.0.0",
-    "@earendil-works/pi-coding-agent": "1.0.0",
-    "@types/bun": "1.3.14",
+    "@earendil-works/pi-ai": "1.3.0",
+    "@earendil-works/pi-coding-agent": "1.3.0",
+    "@types/bun": "1.4.3",
     "typescript": "5.9.3"
   }
 }

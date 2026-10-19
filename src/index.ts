@@ -23,7 +23,7 @@ const LAUNCH_POLL_MS = 250;
 // Host configuration and opaque replay stay out of agent reach.
 const BLOCKED_DRIVER_TOOLS = new Set(["set_config", "install_ffmpeg", "replay_trajectory", "check_permissions", "kill_app", "end_session", "start_session", "escalate_session"]);
 
-export const DESKTOP_PROMPT = "For native macOS apps and windows, use desktop_observe and desktop_act (pi-desktop), not AppleScript or shell UI scripting. Loop: desktop_observe action=state (use query to find a control) → desktop_act by [N] index, batching steps → read the returned state. Request screenshots only when the element tree is not enough.";
+export const DESKTOP_PROMPT = "For native macOS apps and windows, use desktop_observe and desktop_act (pi-cua), not AppleScript or shell UI scripting. Loop: desktop_observe action=state (use query to find a control) → desktop_act by [N] index, batching steps → read the returned state. Request screenshots only when the element tree is not enough.";
 
 export const JEV_PROMPT = "Desktop JEV mode is on: desktop_act click/double_click/right_click/type/set_value/scroll steps accept `target`, a plain-language control description such as \"Save button in the toolbar\", instead of index, so you can act without observing first. If a step fails with jev_uncertain, retry with one of the listed indices; with jev_none or jev_no_candidates, read the returned state; with jev_needs_index, pass the index only if the destructive action is intended.";
 
@@ -149,7 +149,7 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
       throw new DesktopError("ambiguous_target", `${matches.length} windows match; pass window_id.\n${renderWindows({ windows: matches }, true)}`);
     }
 
-    function stateArgs(target: Target, params: Pick<ObserveParams, "query" | "max_elements" | "max_depth" | "timeout_ms" | "screenshot" | "max_image_dimension">) {
+    function stateArgs(target: Target, params: Pick<ObserveParams, "query" | "max_elements" | "max_depth" | "timeout_ms" | "screenshot" | "max_image_dimension" | "menus">) {
       return {
         pid: target.pid, window_id: target.windowId,
         include_screenshot: params.screenshot ?? false,
@@ -158,6 +158,8 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
         ...(params.screenshot ? { max_image_dimension: params.max_image_dimension ?? DEFAULT_IMAGE_DIMENSION } : {}),
         ...(params.query ? { query: params.query } : {}),
         ...(params.max_depth ? { max_depth: params.max_depth } : {}),
+        // The driver lists closed menus' items only in a full read.
+        ...(params.menus ? { full_output: true } : {}),
       };
     }
 
@@ -442,9 +444,9 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
       async execute(_id, input, signal, _onUpdate, ctx) {
         try {
           const params = driverParameters.parse(input);
-          if (params.args?.session !== undefined) throw new DesktopError("invalid_arguments", "The session label is owned by pi-desktop; omit args.session.");
+          if (params.args?.session !== undefined) throw new DesktopError("invalid_arguments", "The session label is owned by pi-cua; omit args.session.");
           if (BLOCKED_DRIVER_TOOLS.has(params.tool)) {
-            const hint = params.tool.endsWith("_session") ? " pi-desktop restarts expired sessions on the next call; retry desktop_observe/desktop_act directly." : "";
+            const hint = params.tool.endsWith("_session") ? " pi-cua restarts expired sessions on the next call; retry desktop_observe/desktop_act directly." : "";
             throw new DesktopError("blocked_tool", `${params.tool} is reserved for the user or the plugin.${hint}`);
           }
           const result = await serial(() => call(ctx, params.tool, params.args ?? {}, signal), signal);
@@ -460,7 +462,7 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
     });
 
     pi.registerCommand("desktop", {
-      description: "pi-desktop status: driver, permissions, this conversation's session, JEV. /desktop jev on|off toggles Jev targeting for this conversation (sends control labels to Vercel AI Gateway); /desktop reset ends this conversation's driver sessions. Enable or disable the tools in your host extension settings.",
+      description: "pi-cua status: driver, permissions, this conversation's session, JEV. /desktop jev on|off toggles Jev targeting for this conversation (sends control labels to Vercel AI Gateway); /desktop reset ends this conversation's driver sessions. Enable or disable the tools in your host extension settings.",
       getArgumentCompletions: prefix => SUBCOMMANDS.filter(value => value.startsWith(prefix)).map(value => ({ value, label: value })),
       async handler(args, ctx) {
         const arg = args.trim().toLowerCase().replace(/\s+/g, " ") || "status";
@@ -479,13 +481,13 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
           const state = desktop.status();
           const contract = meta.contractVersion.startsWith(SUPPORTED_CONTRACT) ? "" : ` (untested contract; expected ${SUPPORTED_CONTRACT}x)`;
           notify([
-            "pi-desktop: enabled; manage it in your host extension settings.",
+            "pi-cua: enabled; manage it in your host extension settings.",
             `cua-driver ${meta.driverVersion}, contract ${meta.contractVersion}${contract}, pid ${meta.pid}`,
             `permissions: ${compact(permissions.text || JSON.stringify(permissions.json), 400)}`,
-            `session ${label(ctx)}; ${state.snapshots} window snapshot(s); ${state.sharedUsers} binding(s) share the runtime; JEV ${jev ? "on" : "off"}`,
+            `session ${label(ctx)}; ${state.snapshots} window snapshot(s); JEV ${jev ? "on" : "off"}`,
           ].join("\n"), contract ? "warning" : "info");
         }
-        catch (error) { notify(`pi-desktop: ${error instanceof Error ? error.message : String(error)}`, "error"); }
+        catch (error) { notify(`pi-cua: ${error instanceof Error ? error.message : String(error)}`, "error"); }
       },
     });
 

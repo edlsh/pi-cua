@@ -18,7 +18,7 @@ final class Fixture: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 660, height: 500),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "pi-desktop Test Fixture"
+        window.title = "pi-cua Test Fixture"
         let view = window.contentView!
         let button = NSButton(title: "Increment", target: self, action: #selector(increment(_:)))
         button.frame = NSRect(x: 24, y: 440, width: 120, height: 32)
