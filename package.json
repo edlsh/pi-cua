@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "description": "Native macOS desktop control for Pi agents, backed by the cua-driver CuaDriver.app daemon",
   "type": "module",
-  "keywords": ["pi-package", "pi", "pi-coding-agent", "extension", "macos", "desktop", "computer-use", "cua"],
+  "keywords": ["pi-package", "pi-extension", "pi", "pi-coding-agent", "extension", "macos", "desktop", "desktop-automation", "computer-use", "cua", "cua-driver", "accessibility", "ai-agent"],
   "author": "Enzo Lucchesi <enzo@edl.sh>",
   "license": "MIT",
   "repository": {
