@@ -25,6 +25,9 @@ mock.module("@trycua/cua-driver", () => ({
 }));
 
 const { createDesktopExtension } = await import("../src/index.ts");
+
+// The driver is mocked, so pin the macOS guard open and let the unit suite run on any host; test/live covers real macOS.
+Object.defineProperty(process, "platform", { value: "darwin" });
 type DesktopOptions = NonNullable<Parameters<typeof createDesktopExtension>[0]>;
 
 const window = (overrides: Record<string, unknown> = {}) => ({
