@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { DriverResult } from "./driver.ts";
 
 export const TREE_CHAR_LIMIT = 40_000;
@@ -145,6 +146,9 @@ export function renderState(result: DriverResult, options: { menus?: boolean; qu
 /** Driver messages name its own tools; point the agent at the pi-cua call that does the same thing. */
 export function agentHint(text: string): string {
   return text.replace(/\bget_window_state\b( with a screenshot)?/g, (_match, screenshot) => `desktop_observe action=state${screenshot ? " screenshot=true" : ""}`)
+    .replace(/\blist_windows\b/g, "desktop_observe action=windows")
+    .replace(/\bdelivery_mode:\s*"?(background|foreground)"?/g, 'delivery="$1"')
+    .replace(/\binvoke_menu\b/g, "the menu op").replace(/\bset_window_frame\b/g, "the resize op").replace(/\belement_token\b/g, "index")
     .replace(/ on the same connection/g, "");
 }
 
@@ -153,20 +157,32 @@ export function compact(value: unknown, limit = 300): string {
   return text.length > limit ? `${text.slice(0, limit)}…` : text;
 }
 
+/** The driver's own next step for a refusal or an action it could not confirm. */
+const driverAdvice = z.string().min(1);
+
+/** Windows an action opened, as the driver lists them. */
+const openedWindows = z.array(z.object({ pid: z.number(), window_id: z.number(), title: z.string().nullish() }));
+
 /** One line per action: outcome plus the driver's evidence (effect/route) when present. */
 export function renderAction(result: DriverResult): string {
   const json = result.json ?? {};
+  const advice = driverAdvice.safeParse(json.hint ?? json.error?.hint);
+  const next = advice.success ? ` Next: ${compact(agentHint(advice.data))}` : "";
   if (result.isError) {
     const code = result.errorCode ?? json.error_code ?? json.code;
-    return `failed${code ? ` [${code}]` : ""}: ${compact(agentHint(firstLine(result.text) || json.message || "driver error"))}`;
+    return `failed${code ? ` [${code}]` : ""}: ${compact(agentHint(firstLine(result.text) || json.message || "driver error"))}${next}`;
   }
+  // Windows the action opened (a sheet's own window, a new document): the returned state is still the target window's.
+  const windows = openedWindows.safeParse(json.new_windows);
+  const opened = (windows.success ? windows.data : []).map(window => `pid=${window.pid} window_id=${window.window_id} ${quote(window.title)}`);
   const evidence = [
     json.effect !== undefined ? `effect=${json.effect}` : "",
     json.path !== undefined ? `path=${compact(json.path, 60)}` : json.route !== undefined ? `route=${compact(json.route, 60)}` : "",
     json.verified !== undefined ? `verified=${json.verified}` : "",
     json.escalation ? `escalation=${compact(json.escalation, 160)}` : "",
+    opened.length ? `opened=[${opened.join("; ")}]` : "",
   ].filter(Boolean);
-  return evidence.length ? `ok ${evidence.join(" ")}` : `ok ${compact(firstLine(result.text), 200)}`.trimEnd();
+  return `${evidence.length ? `ok ${evidence.join(" ")}` : `ok ${compact(firstLine(result.text), 200)}`.trimEnd()}${next}`;
 }
 
 function firstLine(text: string): string {
