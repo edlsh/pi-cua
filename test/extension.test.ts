@@ -333,6 +333,14 @@ test("a step reports the windows it opened, which the returned state does not sh
   expect(result.text).toContain('→ ok effect=unverifiable route=accessibility opened=[pid=10 window_id=207 "Export As"]');
 });
 
+test("/desktop warns when the installed daemon is older than the SDK these tools use", async () => {
+  handlers.check_permissions = () => ({ text: "Accessibility: granted" });
+  const { command, notices } = load();
+  await command("status");
+  // The mocked daemon reports 0.34.0.
+  expect(notices.at(-1)).toMatch(/cua-driver 0\.34\.0 \(older than the \d+\.\d+\.\d+ SDK these tools use; update with `cua-driver update --apply`\)/);
+});
+
 test("JEV acts on a confident pick and declines an uncertain one, sending labels but not typed values", async () => {
   const tree = [
     "- [0] AXWindow \"Notes\"",
