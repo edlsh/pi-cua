@@ -36,7 +36,8 @@ newest desktop screenshots stay in context.
 
 ## Failures
 
-- A step refused in the background: retry it with `delivery="foreground"`. `drag` always uses the foreground.
+- A step refused in the background: retry it with `delivery="foreground"`. That includes a `drag` that starts a
+  drag-and-drop session (reordering a list, moving a file), which macOS only tracks with the real pointer.
 - A failed or unconfirmed step can end with `Next:`, the driver's own advice for that case; follow it before guessing.
 - A stale index is retried once automatically. If a step still fails, observe again before acting.
 - `permissions` in `desktop_observe` (or the user's `/desktop`) shows missing Accessibility or Screen Recording
