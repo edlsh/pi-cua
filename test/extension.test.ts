@@ -324,6 +324,15 @@ test("the prompt nudge joins Pi's turn guidelines, and /desktop never turns stra
   expect(await nudged()).toHaveLength(2);
 });
 
+test("a step reports the windows it opened, which the returned state does not show", async () => {
+  handlers.get_window_state = () => stateReply([{ role: "AXWindow" }, { role: "AXButton", label: "Export" }]);
+  handlers.click = () => ({ json: { effect: "unverifiable", route: "accessibility", new_windows: [{ window_id: 207, pid: 10, title: "Export As" }] } });
+  const { run } = load();
+  await run("desktop_observe", { action: "state", app: "Notes" });
+  const result = await run("desktop_act", { steps: [{ op: "click", index: 1 }], observe: false });
+  expect(result.text).toContain('→ ok effect=unverifiable route=accessibility opened=[pid=10 window_id=207 "Export As"]');
+});
+
 test("JEV acts on a confident pick and declines an uncertain one, sending labels but not typed values", async () => {
   const tree = [
     "- [0] AXWindow \"Notes\"",
