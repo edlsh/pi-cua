@@ -1,6 +1,6 @@
 # pi-cua
 
-Native macOS desktop control for [Pi](https://github.com/earendil-works/pi) agents, backed by the [cua-driver](https://github.com/trycua/cua) `CuaDriver.app` daemon through its SDK (`@trycua/cua-driver` 0.36.0). Input goes to the target window in the background, so the agent does not take over your mouse or focus.
+Native macOS desktop control for [Pi](https://github.com/earendil-works/pi) agents, backed by the [cua-driver](https://github.com/trycua/cua) `CuaDriver.app` daemon through its SDK (`@trycua/cua-driver` 0.49.1). Input goes to the target window in the background, so the agent does not take over your mouse or focus.
 
 This package was renamed from `pi-desktop` and is published on npm as `@edlsh/pi-cua`. The tools, the `/desktop` command, the `desktop` skill, and the exported `createDesktopExtension` are unchanged.
 
@@ -25,7 +25,7 @@ cua-driver ends sessions after 5 idle minutes (this conversation's label and the
 
 ## Setup
 
-Requires Pi 1.x on Node 22.19 or newer, and `CuaDriver.app` 0.36 in `/Applications` (installer: `/bin/bash -c "$(curl -fsSL https://cua.ai/driver/install.sh)"`). The first desktop call starts the daemon (`open -n -g -a CuaDriver --args serve`) when it is not running, and fails with `driver_unavailable` rather than falling back to an in-process runtime. Accessibility and Screen Recording are granted to `CuaDriver.app`, not to the app that launches Pi: run `cua-driver permissions grant` once and approve both. Until then calls fail with `permissions_pending`. Check with `desktop_observe action=permissions` or `/desktop`.
+Requires Pi 1.x on Node 22.19 or newer, and `CuaDriver.app` 0.49 in `/Applications` (installer: `/bin/bash -c "$(curl -fsSL https://cua.ai/driver/install.sh)"`; update an installed one with `cua-driver update --apply`). The first desktop call starts the daemon (`open -n -g -a CuaDriver --args serve`) when it is not running, and fails with `driver_unavailable` rather than falling back to an in-process runtime. Accessibility and Screen Recording are granted to `CuaDriver.app`, not to the app that launches Pi: run `cua-driver permissions grant` once and approve both. Until then calls fail with `permissions_pending`. Check with `desktop_observe action=permissions` or `/desktop`.
 
 The SDK's Node addon connects to the daemon's socket. Load the extension one way, never both (duplicate tools):
 
