@@ -1,8 +1,12 @@
 import type { CuaDriverLike, DriverMetadata } from "@trycua/cua-driver";
 import { execFile } from "node:child_process";
+import { createRequire } from "node:module";
 import sharp from "sharp";
+import { z } from "zod";
 
 export const SUPPORTED_CONTRACT = "0.8.";
+/** The @trycua/cua-driver SDK version this package pins. */
+export const SDK_VERSION = z.string().parse(createRequire(import.meta.url)("../package.json").dependencies["@trycua/cua-driver"]);
 
 export interface DriverImage { data: string; mimeType: string }
 

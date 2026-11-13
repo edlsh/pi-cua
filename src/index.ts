@@ -1,7 +1,7 @@
 import type { DesktopAPI as ExtensionAPI, DesktopContext as ExtensionContext, DesktopResult as AgentToolResult, PromptEvent } from "./host.ts";
 import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
-import { DesktopBackend, DesktopError, SUPPORTED_CONTRACT, type DriverImage, type DriverResult } from "./driver.ts";
+import { DesktopBackend, DesktopError, SDK_VERSION, SUPPORTED_CONTRACT, type DriverImage, type DriverResult } from "./driver.ts";
 import { DESTRUCTIVE, desktopCandidates, JEV_MIN_CONFIDENCE, jevChooser, pickTarget } from "./jev.ts";
 import { compact, isVisibleWindow, pruneScreenshots, renderAction, renderApps, renderState, renderWindows } from "./render.ts";
 import { actParameters, driverParameters, observeParameters, type ActParams, type Expectation, type ObserveParams, type Step } from "./schema.ts";
@@ -49,6 +49,14 @@ function appendSystemPrompt(event: PromptEvent, lines: string[]): undefined {
 export function sessionLabel(sessionId: string, profile = process.env.PI_PROFILE || "default"): string {
   const clean = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
   return `pi-${clean(profile).slice(0, 16) || "default"}-${clean(sessionId).slice(-12) || "session"}`;
+}
+
+/** Whether dotted version `version` is lower than `other`, by its numeric parts. */
+function olderThan(version: string, other: string): boolean {
+  const parts = (value: string) => value.split(".").map(part => Number.parseInt(part, 10) || 0);
+  const a = parts(version), b = parts(other);
+  for (let i = 0; i < Math.max(a.length, b.length); i++) if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) < (b[i] ?? 0);
+  return false;
 }
 
 function describeElement(element: { role?: string; label?: string } | undefined): string {
@@ -480,12 +488,14 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
           const permissions = await call(ctx, "check_permissions", { prompt: false });
           const state = desktop.status();
           const contract = meta.contractVersion.startsWith(SUPPORTED_CONTRACT) ? "" : ` (untested contract; expected ${SUPPORTED_CONTRACT}x)`;
+          // The daemon is installed and updated apart from this package, so it can fall behind the SDK the tools were tested with.
+          const outdated = olderThan(meta.driverVersion, SDK_VERSION) ? ` (older than the ${SDK_VERSION} SDK these tools use; update with \`cua-driver update --apply\`)` : "";
           notify([
             "pi-cua: enabled; manage it in your host extension settings.",
-            `cua-driver ${meta.driverVersion}, contract ${meta.contractVersion}${contract}, pid ${meta.pid}`,
+            `cua-driver ${meta.driverVersion}${outdated}, contract ${meta.contractVersion}${contract}, pid ${meta.pid}`,
             `permissions: ${compact(permissions.text || JSON.stringify(permissions.json), 400)}`,
             `session ${label(ctx)}; ${state.snapshots} window snapshot(s); JEV ${jev ? "on" : "off"}`,
-          ].join("\n"), contract ? "warning" : "info");
+          ].join("\n"), contract || outdated ? "warning" : "info");
         }
         catch (error) { notify(`pi-cua: ${error instanceof Error ? error.message : String(error)}`, "error"); }
       },
