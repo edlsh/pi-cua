@@ -475,13 +475,21 @@ test("desktop_driver cannot redirect an action to another conversation session",
 });
 
 
-test("pixel drags default to foreground delivery because macOS has no background drag", async () => {
+test("pixel drags run in the background unless foreground is asked for, and a refused drag carries the driver's next step", async () => {
   handlers.get_window_state = () => stateReply([{ role: "AXWindow" }]);
-  handlers.drag = args => args.delivery_mode === "foreground" ? { json: { effect: "unverifiable" } } : { isError: true, errorCode: "background_unavailable", text: "Background drag is unavailable on macOS" };
+  // As the driver does for a drag that starts a drag-and-drop session, which macOS tracks with the real pointer.
+  handlers.drag = args => args.delivery_mode === "foreground" ? { json: { effect: "unverifiable" } } : {
+    isError: true, errorCode: "background_unavailable", text: "No drop landed.\nNext: retry in the foreground",
+    json: { code: "background_unavailable", reason: "drag_and_drop_session", hint: "No drop landed: macOS drag-and-drop needs the real pointer. Retry with delivery_mode:\"foreground\" only if the user allows the window to come forward." },
+  };
   const { run } = load();
-  const result = await run("desktop_act", { pid: 10, window_id: 100, steps: [{ op: "drag", from: [1, 2], to: [3, 4] }], observe: false });
-  expect(result.isError).toBeUndefined();
-  expect(calls.find(call => call.tool === "drag")!.args.delivery_mode).toBe("foreground");
+  const refused = await run("desktop_act", { pid: 10, window_id: 100, steps: [{ op: "drag", from: [1, 2], to: [3, 4] }], observe: false });
+  expect(calls.find(call => call.tool === "drag")!.args.delivery_mode).toBeUndefined();
+  expect(refused.isError).toBe(true);
+  expect(refused.text).toContain("failed [background_unavailable]: No drop landed. Next: No drop landed: macOS drag-and-drop needs the real pointer. Retry with delivery=\"foreground\" only if");
+  const fronted = await run("desktop_act", { pid: 10, window_id: 100, steps: [{ op: "drag", from: [1, 2], to: [3, 4], delivery: "foreground" }], observe: false });
+  expect(fronted.isError).toBeUndefined();
+  expect(calls.filter(call => call.tool === "drag").at(-1)!.args.delivery_mode).toBe("foreground");
 });
 
 test("rendered state shows slider values the tree omits, so drags can be checked", async () => {

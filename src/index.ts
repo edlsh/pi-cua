@@ -274,7 +274,7 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
           case "key": return ["press_key", { ...locate(at, step, false), key: step.key, ...(step.modifiers ? { modifiers: step.modifiers } : {}), ...delivery(step) }];
           case "hotkey": return ["hotkey", { ...locate(at, step, false), keys: step.keys, ...delivery(step) }];
           case "scroll": return ["scroll", { ...locate(at, step, false), direction: step.direction, ...(step.amount ? { amount: step.amount } : {}), ...(step.by ? { by: step.by } : {}), ...delivery(step) }];
-          case "drag": return ["drag", { pid: at.pid, window_id: at.windowId, from_x: step.from[0], from_y: step.from[1], to_x: step.to[0], to_y: step.to[1], ...(step.duration_ms !== undefined ? { duration_ms: step.duration_ms } : {}), ...(step.modifiers ? { modifier: step.modifiers } : {}), delivery_mode: step.delivery ?? "foreground" }];
+          case "drag": return ["drag", { pid: at.pid, window_id: at.windowId, from_x: step.from[0], from_y: step.from[1], to_x: step.to[0], to_y: step.to[1], ...(step.duration_ms !== undefined ? { duration_ms: step.duration_ms } : {}), ...(step.modifiers ? { modifier: step.modifiers } : {}), ...delivery(step) }];
           case "menu": return ["invoke_menu", { pid: at.pid, window_id: at.windowId, path: step.path }];
           case "focus": return ["bring_to_front", { pid: at.pid, window_id: at.windowId }];
           case "resize": return ["set_window_frame", { pid: at.pid, window_id: at.windowId, x: step.x, y: step.y, width: step.width, height: step.height }];
