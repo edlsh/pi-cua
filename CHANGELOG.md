@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/edlsh/pi-cua/compare/v0.2.0...v0.2.1) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** update @trycua/cua-driver to 0.61.3 ([607f909](https://github.com/edlsh/pi-cua/commit/607f9096f5b465662f3ae521ba908540f3c8061a))
+
 ## [0.2.0](https://github.com/edlsh/pi-cua/compare/v0.1.2...v0.2.0) (2026-11-13)
 
 
