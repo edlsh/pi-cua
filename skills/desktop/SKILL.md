@@ -17,16 +17,17 @@ or synthetic shell input.
 
 1. `desktop_observe action=windows` to find the window (`pid`, `window_id`). `apps` lists running apps.
 2. `desktop_observe action=state` for the element tree with `[N]` indices. Pass `query` (for example
-   `query="save"`) to find one control instead of raising `max_elements`. Omitting `pid`/`window_id` reuses the
-   last observed window.
+   `query="save|export"`) to find controls instead of raising `max_elements`, and `since="latest"` for a compact diff
+   against the last read. Omitting `pid`/`window_id` reuses the last observed window.
 3. `desktop_act` with up to 20 steps by `[N]` index: `click`, `type`, `set_value`, `key`, `hotkey`, `scroll`, `drag`,
    `menu`, `launch`, `focus`, `resize`, `clipboard`, `wait`. Indices stay valid for the whole batch, so batch the
    steps you are sure of.
-4. Read the fresh state that `desktop_act` returns, then continue. Add `verify` predicates when the outcome must be
-   checked; `unknown` is inconclusive, so read the state.
+4. Read the fresh state diff that `desktop_act` returns (pass `since="full"` for the full tree), then continue. Add
+   `verify` predicates when the outcome must be checked; `unknown` is inconclusive, so read the state.
 
-Prefer `set_value` for text fields, `menu` for menu-bar commands (the app must be able to become frontmost; else use
-`hotkey`), and `hotkey` for shortcuts; give an editing chord such as cmd+a the field's `index` so it lands there.
+Prefer `set_value` for text fields, dropdowns, sliders, and steppers, `menu` for menu-bar commands (runs in the
+background by default; pass `delivery="foreground"` if refused), and `hotkey` for shortcuts; give an editing chord
+such as cmd+a the field's `index` so it lands there.
 
 ## Screenshots
 
@@ -49,8 +50,11 @@ newest desktop screenshots stay in context.
 ## Advanced
 
 `desktop_driver` calls other cua-driver tools directly, with snake_case arguments: `zoom` to magnify part of a
-screenshot, `page` for browser DOM or JavaScript, `clipboard_read`, `get_screen_size`, and recording. Use
-`desktop_act` for normal input. Session-management tools are blocked, and the session label is set for you.
+screenshot (then pass `from_zoom=true` to `click`/`drag` in `desktop_act`), `run_steps` for driver-side role/name
+targeting with per-step `wait_for`/`expect`, `run_script` for sandboxed JS loops/branches over `cua`, `agent_display`
+for a virtual display off the user's screen, `health_report`, `get_guide`, `page` for legacy browser DOM,
+`clipboard_read`, `get_screen_size`, and recording. Use `desktop_act` for normal input. Session-management and host
+installer/configuration tools are blocked, and the session label is set for you.
 
 ## JEV targeting
 

@@ -797,3 +797,89 @@ test("JEV supports Cloudflare Workers AI and turns itself off on Cloudflare bill
     globalThis.fetch = realFetch;
   }
 });
+
+test("desktop_act auto-diffs against the last full snapshot, updates element tokens across diffs, and re-reads full on reindexed diffs", async () => {
+  let diffKind: "diff" | "reindexed" = "diff";
+  handlers.get_window_state = args => {
+    if (args.since === "latest") {
+      const snapshot_id = `s${String(++snapshotCounter).padStart(8, "0")}`;
+      return {
+        json: {
+          app_name: "Notes", window_title: "Notes", pid: 10, window_id: 100, snapshot_id,
+          ui_tree_revision: 42, since: "latest", since_status: "diff",
+          tree_diff: diffKind === "reindexed"
+            ? "since s00000002: 1 added, 0 changed, 0 removed.\nreindexed: 1->2\n+ [1] AXButton \"New\""
+            : 'since s00000001: 0 added, 1 changed, 0 removed.\n~ [2] AXStaticText = "Count 1"',
+          elements: [],
+        },
+      };
+    }
+    const reply = stateReply([
+      { role: "AXWindow" },
+      { role: "AXButton", label: "Increment" },
+      { role: "AXStaticText", label: "Count" },
+    ], '- [0] AXWindow "Notes"\n  - [1] AXButton "Increment"\n  - [2] AXStaticText = "Count 0"');
+    (reply.json as any).ui_tree_revision = 41;
+    return reply;
+  };
+  handlers.click = () => ({ json: { effect: "confirmed" } });
+  const { run } = load();
+
+  await run("desktop_observe", { action: "state", pid: 10, window_id: 100 });
+  const firstAct = await run("desktop_act", { pid: 10, window_id: 100, check_unchanged: true, steps: [{ op: "click", index: 1 }] });
+  expect(firstAct.isError).toBeUndefined();
+  expect(firstAct.text).toContain("diff=diff");
+  expect(firstAct.text).toContain('~ [2] AXStaticText = "Count 1"');
+  expect(calls.find(c => c.tool === "click")!.args).toMatchObject({ element_token: "s00000001:1", ui_tree_revision: 41 });
+
+  diffKind = "reindexed";
+  const secondAct = await run("desktop_act", { pid: 10, window_id: 100, check_unchanged: true, steps: [{ op: "click", index: 1 }] });
+  expect(secondAct.isError).toBeUndefined();
+  expect(calls.filter(c => c.tool === "click").at(-1)!.args).toMatchObject({ element_token: "s00000002:1", ui_tree_revision: 42 });
+  expect(secondAct.text).toContain("elements=3/3");
+
+  // A drag step skips auto-diff so slider/range values (which tree_diff omits) remain observable.
+  handlers.drag = () => ({ json: { effect: "unverifiable" } });
+  await run("desktop_act", { pid: 10, window_id: 100, steps: [{ op: "drag", from: [1, 2], to: [3, 4] }] });
+  expect(calls.filter(c => c.tool === "get_window_state").at(-1)!.args.since).toBeUndefined();
+});
+
+test("newer driver step fields (menu delivery, from_zoom, drag button/steps, key x/y, launch isolation, clipboard file_path) and /desktop health_report work", async () => {
+  handlers.invoke_menu = () => ({ json: { effect: "confirmed" } });
+  handlers.click = () => ({ json: { effect: "confirmed" } });
+  handlers.drag = () => ({ json: { effect: "unverifiable" } });
+  handlers.press_key = () => ({ json: {} });
+  handlers.clipboard_write = () => ({ json: {} });
+  handlers.launch_app = () => ({ json: { pid: 10, windows: [{ pid: 10, window_id: 100 }] } });
+  handlers.health_report = () => ({
+    json: {
+      schema_version: "1", overall: "ok", driver_version: "0.64.2",
+      checks: [
+        { name: "tcc_accessibility", status: "pass", message: "Accessibility is granted." },
+        { name: "tcc_screen_recording", status: "pass", message: "Screen Recording is granted." },
+      ],
+    },
+  });
+  const { run, command, notices } = load();
+  const acted = await run("desktop_act", {
+    pid: 10, window_id: 100, observe: false,
+    steps: [
+      { op: "menu", path: ["File", "Save"], delivery: "foreground" },
+      { op: "click", x: 10, y: 20, from_zoom: true },
+      { op: "drag", from: [1, 2], to: [3, 4], button: "right", steps: 12, from_zoom: true },
+      { op: "key", key: "return", x: 50, y: 60 },
+      { op: "clipboard", file_path: "/tmp/demo.txt" },
+      { op: "launch", bundle_id: "com.apple.Notes", creates_new_application_instance: true, additional_arguments: ["--clean"] },
+    ],
+  });
+  expect(acted.isError).toBeUndefined();
+  expect(calls.find(c => c.tool === "invoke_menu")!.args).toMatchObject({ path: ["File", "Save"], delivery_mode: "foreground" });
+  expect(calls.find(c => c.tool === "click")!.args).toMatchObject({ x: 10, y: 20, from_zoom: true });
+  expect(calls.find(c => c.tool === "drag")!.args).toMatchObject({ button: "right", steps: 12, from_zoom: true });
+  expect(calls.find(c => c.tool === "press_key")!.args).toMatchObject({ key: "return", x: 50, y: 60 });
+  expect(calls.find(c => c.tool === "clipboard_write")!.args).toEqual({ file_path: "/tmp/demo.txt", session: "pi-default-abc-123" });
+  expect(calls.find(c => c.tool === "launch_app")!.args).toMatchObject({ bundle_id: "com.apple.Notes", creates_new_application_instance: true, additional_arguments: ["--clean"] });
+
+  await command("status");
+  expect(notices.at(-1)).toContain("health ok — Accessibility is granted. Screen Recording is granted.");
+});

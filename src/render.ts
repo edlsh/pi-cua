@@ -41,7 +41,7 @@ export function renderWindows(json: Record<string, any> | undefined, all: boolea
   const windows: any[] = Array.isArray(json?.windows) ? json!.windows : [];
   const wanted = appFilter?.toLowerCase();
   const rows = windows.filter(window =>
-    (!wanted || String(window.app_name ?? "").toLowerCase() === wanted) && (all || isVisibleWindow(window)));
+    (!wanted || String(window.app_name ?? "").toLowerCase() === wanted || String(window.bundle_id ?? "").toLowerCase() === wanted) && (all || isVisibleWindow(window)));
   if (!rows.length) return wanted ? `No visible windows for app ${quote(appFilter)}.` : "No visible windows.";
   const lines = rows.map(window => {
     const b = window.bounds ?? {};
@@ -81,7 +81,7 @@ export function foldMenuBar(tree: string): string {
   return out.join("\n");
 }
 
-const VALUE_ROLES = new Set(["AXSlider", "AXProgressIndicator", "AXLevelIndicator", "AXIncrementor", "AXValueIndicator"]);
+export const VALUE_ROLES = new Set(["AXSlider", "AXProgressIndicator", "AXLevelIndicator", "AXIncrementor", "AXValueIndicator"]);
 const INDEXED_LINE = /^(\s*- \[(\d+)\] (\S+)(?: \([^)]*\))?)(.*)$/;
 
 /** The driver tree omits values of sliders and other range controls; add them so their changes are observable. */
@@ -211,6 +211,19 @@ export function renderAction(result: DriverResult): string {
 
 function firstLine(text: string): string {
   return text.split("\n").find(line => line.trim())?.trim() ?? "";
+}
+
+export function renderHealth(json: Record<string, any> | undefined): { summary: string; degraded: boolean } | undefined {
+  if (!json || json.schema_version !== "1" || !Array.isArray(json.checks)) return undefined;
+  const checks: { name?: string; status?: string; message?: string; hint?: string }[] = json.checks;
+  const failing = checks.filter(check => check?.status === "fail");
+  const tcc = checks.filter(check => check?.name === "tcc_accessibility" || check?.name === "tcc_screen_recording")
+    .map(check => check.message || `${check.name}: ${check.status}`);
+  const detail = failing.length
+    ? failing.map(check => `${check.name}: ${check.message ?? "fail"}${check.hint ? ` (${check.hint})` : ""}`).join("; ")
+    : tcc.join(" ");
+  const overall = String(json.overall ?? "unknown");
+  return { summary: `health ${overall}${detail ? ` — ${compact(detail, 400)}` : ""}`, degraded: overall !== "ok" };
 }
 
 export const PRUNED_IMAGE_TEXT = "[older desktop screenshot removed to save context; observe again if needed]";

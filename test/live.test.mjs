@@ -69,17 +69,22 @@ test("live pi desktop: isolated native window, observations, images, actions, re
       assert.ok(Buffer.from(image.data, "base64").readUInt32BE(16) <= 800);
       if (!actEnabled) return;
 
-      state = ok(await run("desktop_act", { ...target, steps: [{ op: "click", index: indexOf(queried.text, "AXButton", "Increment") }],
+      const fullState = ok(await run("desktop_act", { ...target, steps: [{ op: "click", index: indexOf(queried.text, "AXButton", "Increment") }],
         verify: [{ role: "AXStaticText", value: "Count 1" }] }));
-      assert.match(state.text, /Count 1/);
-      state = ok(await run("desktop_act", { ...target, steps: [{ op: "set_value", index: indexOf(state.text, "AXTextField", "Test input"), value: "pi ✓ 日本語" }] }));
+      assert.match(fullState.text, /Count 1/);
+      const inputIdx = indexOf(fullState.text, "AXTextField", "Test input");
+      const rowsIdx = indexOf(fullState.text, "AXTextArea", "Test rows");
+      const incIdx = indexOf(fullState.text, "AXButton", "Increment");
+      // Second act against the default-scope snapshot automatically returns a compact diff while keeping indices live.
+      state = ok(await run("desktop_act", { ...target, steps: [{ op: "set_value", index: inputIdx, value: "pi ✓ 日本語" }] }));
+      assert.match(state.text, /diff=diff/);
       assert.match(state.text, /pi ✓ 日本語/);
       state = ok(await run("desktop_act", { ...target, steps: [
-        { op: "type", index: indexOf(state.text, "AXTextField", "Test input"), text: "discard" },
-        { op: "hotkey", keys: ["cmd", "a"], index: indexOf(state.text, "AXTextField", "Test input"), delivery: "foreground" }, { op: "wait", ms: 100 }, { op: "type", text: "typed ✓" }, { op: "key", key: "tab", delivery: "foreground" },
-      ] }));
+        { op: "type", index: inputIdx, text: "discard" },
+        { op: "hotkey", keys: ["cmd", "a"], index: inputIdx, delivery: "foreground" }, { op: "wait", ms: 100 }, { op: "type", text: "typed ✓" }, { op: "key", key: "tab", delivery: "foreground" },
+      ], since: "full" }));
       assert.match(state.text, /AXTextField = "typed ✓" \(Test input\)/);
-      state = ok(await run("desktop_act", { ...target, steps: [{ op: "scroll", index: indexOf(state.text, "AXTextArea", "Test rows"), direction: "down", amount: 3, by: "line" }] }));
+      state = ok(await run("desktop_act", { ...target, steps: [{ op: "scroll", index: rowsIdx, direction: "down", amount: 3, by: "line" }] }));
       state = ok(await run("desktop_act", { ...target, steps: [{ op: "focus" }, { op: "wait", ms: 100 }, { op: "menu", path: ["File", "Reset"] }, { op: "wait", ms: 250 }], verify: [{ role: "AXStaticText", value: "Count 0" }] }));
       assert.match(state.text, /Count 0/);
       state = ok(await run("desktop_observe", { action: "state", ...target, screenshot: true, max_image_dimension: 800 }));
@@ -87,9 +92,9 @@ test("live pi desktop: isolated native window, observations, images, actions, re
       state = ok(await run("desktop_act", { ...target, steps: [{ op: "click", x: 84 * scale, y: 66 * scale }] }));
       assert.match(state.text, /Count 1/);
       assert.ok(state.content.some(part => part.type === "image"), "Pixel actions must return a current screenshot");
-      state = ok(await run("desktop_act", { ...target, steps: [{ op: "double_click", index: indexOf(state.text, "AXButton", "Increment"), delivery: "foreground" }, { op: "wait", ms: 200 }] }));
+      state = ok(await run("desktop_act", { ...target, steps: [{ op: "double_click", index: incIdx, delivery: "foreground" }, { op: "wait", ms: 200 }] }));
       assert.ok(Number(state.text.match(/Count (\d+)/)?.[1]) > 1, state.text);
-      state = ok(await run("desktop_act", { ...target, steps: [{ op: "right_click", index: indexOf(state.text, "AXTextField", "Test input"), delivery: "foreground" }, { op: "wait", ms: 100 }, { op: "key", key: "escape", delivery: "foreground" }] }));
+      state = ok(await run("desktop_act", { ...target, steps: [{ op: "right_click", index: inputIdx, delivery: "foreground" }, { op: "wait", ms: 100 }, { op: "key", key: "escape", delivery: "foreground" }], since: "full" }));
       const countAfterClicks = state.text.match(/Count (\d+)/)?.[0];
       // Drag the slider knob as an agent would: from the window's bounds and a screenshot, with default delivery.
       const sliderValue = text => Number(text.match(/AXSlider \(Test slider\) = "([\d.]+)"/)?.[1]);
