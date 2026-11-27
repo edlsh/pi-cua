@@ -67,7 +67,7 @@ const step = z.discriminatedUnion("op", [
 const expectation = z.object({
   role: z.string().min(1).optional().describe("AX role, e.g. AXButton."),
   label: z.string().min(1).optional().describe("Label substring."),
-  value: z.string().nullable().optional().describe("Exact value."),
+  value: z.string().optional().describe("Exact value."),
   enabled: z.boolean().optional(),
   selected: z.boolean().optional(),
   window_exists: z.boolean().optional().describe("Assert the target window exists (true) or has closed (false)."),

@@ -2,7 +2,7 @@ import type { DesktopAPI as ExtensionAPI, DesktopContext as ExtensionContext, De
 import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
 import { DesktopBackend, DesktopError, SDK_VERSION, SUPPORTED_CONTRACT, type DriverImage, type DriverResult } from "./driver.ts";
-import { DESTRUCTIVE, desktopCandidates, JEV_MIN_CONFIDENCE, jevChooser, pickTarget } from "./jev.ts";
+import { ClassifierRefusal, DESTRUCTIVE, desktopCandidates, JEV_MIN_CONFIDENCE, jevChooser, pickTarget, WORKERS_AI_JEV, workersAiChooser, type Choose, type CloudflareCredentials } from "./jev.ts";
 import { compact, isVisibleWindow, pruneScreenshots, renderAction, renderApps, renderState, renderWindows } from "./render.ts";
 import { actParameters, driverParameters, observeParameters, type ActParams, type Expectation, type ObserveParams, type Step } from "./schema.ts";
 
@@ -20,8 +20,8 @@ const QUERY_MAX_ELEMENTS = 1500;
 const QUERY_TIMEOUT_MS = 6000;
 const LAUNCH_WINDOW_POLLS = 16;
 const LAUNCH_POLL_MS = 250;
-// Host configuration and opaque replay stay out of agent reach.
-const BLOCKED_DRIVER_TOOLS = new Set(["set_config", "install_ffmpeg", "replay_trajectory", "check_permissions", "kill_app", "end_session", "start_session", "escalate_session"]);
+// Host configuration, extension installers, and opaque replay stay out of agent reach.
+const BLOCKED_DRIVER_TOOLS = new Set(["set_config", "install_ffmpeg", "install_extension", "replay_trajectory", "check_permissions", "kill_app", "end_session", "start_session"]);
 
 export const DESKTOP_PROMPT = "For native macOS apps and windows, use desktop_observe and desktop_act (pi-cua), not AppleScript or shell UI scripting. Loop: desktop_observe action=state (use query to find a control) → desktop_act by [N] index, batching steps → read the returned state. Request screenshots only when the element tree is not enough.";
 
@@ -35,6 +35,10 @@ const STALE_INDEX = /stale|invalid_element_token|out of range/i;
 export interface DesktopOptions {
   /** Supplies the Vercel AI Gateway key for JEV when AI_GATEWAY_API_KEY is unset, e.g. from a local secrets manager. Called on first JEV use. */
   jevApiKey?: () => Promise<string | undefined>;
+  /** Supplies Cloudflare Workers AI credentials for JEV when CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_KEY are unset. */
+  cloudflare?: () => Promise<CloudflareCredentials | undefined>;
+  /** JEV classifier backend: "vercel" (default), "workers-ai", or "workers-ai/<model>". */
+  jevClassifier?: string;
 }
 
 interface Target { pid: number; windowId: number }
@@ -126,6 +130,34 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
 
     async function jevApiKey(): Promise<string | undefined> {
       return process.env.AI_GATEWAY_API_KEY?.trim() || (await options.jevApiKey?.())?.trim() || undefined;
+    }
+
+    async function cloudflareCredentials(): Promise<CloudflareCredentials | undefined> {
+      const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
+      const apiKey = process.env.CLOUDFLARE_API_KEY?.trim();
+      if (accountId && apiKey) return { accountId, apiKey };
+      const resolved = await options.cloudflare?.();
+      if (resolved?.accountId?.trim() && resolved?.apiKey?.trim()) {
+        return { accountId: resolved.accountId.trim(), apiKey: resolved.apiKey.trim() };
+      }
+      return undefined;
+    }
+
+    async function resolveJevChooser(): Promise<Choose | undefined> {
+      const spec = (options.jevClassifier ?? process.env.CUA_JEV_CLASSIFIER ?? "").trim();
+      if (spec === "workers-ai" || spec.startsWith("workers-ai/")) {
+        const cf = await cloudflareCredentials().catch(() => undefined);
+        if (!cf) return undefined;
+        const model = spec.startsWith("workers-ai/") ? spec.slice("workers-ai/".length) : WORKERS_AI_JEV;
+        return workersAiChooser(cf, model);
+      }
+      const key = await jevApiKey().catch(() => undefined);
+      if (key) return jevChooser(key);
+      if (!spec) {
+        const cf = await cloudflareCredentials().catch(() => undefined);
+        if (cf) return workersAiChooser(cf, WORKERS_AI_JEV);
+      }
+      return undefined;
     }
 
     async function call(ctx: ExtensionContext, tool: string, args: Record<string, unknown>, signal?: AbortSignal): Promise<DriverResult> {
@@ -309,21 +341,24 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
       }
 
       /** JEV mode: Jev picks the control for a plain-language target from a fresh walk; it declines rather than guess. */
+      let jevWalkState: DriverResult | undefined;
+      let preserveJevSnapshot = false;
       async function jevLocate(op: string, description: string): Promise<{ index: number; note: string }> {
         if (!jev) throw new DesktopError("jev_off", "JEV mode is off; the user can enable it with /desktop jev on. Observe and use index instead.");
-        const apiKey = await jevApiKey().catch(() => undefined);
-        if (!apiKey) throw new DesktopError("jev_not_configured", "No Vercel AI Gateway key is configured for JEV. Observe and use index instead.");
+        const choose = await resolveJevChooser();
+        if (!choose) throw new DesktopError("jev_not_configured", "No JEV classifier key is configured (set AI_GATEWAY_API_KEY or Cloudflare Workers AI credentials). Observe and use index instead.");
         const at = await needTarget();
         const state = await checked(ctx, "get_window_state", { pid: at.pid, window_id: at.windowId, include_screenshot: false, max_elements: JEV_MAX_ELEMENTS, timeout_ms: DEFAULT_TIMEOUT_MS }, signal);
+        jevWalkState = state;
         const json = state.json ?? {};
         const candidates = desktopCandidates(String(json.tree_markdown ?? ""), Array.isArray(json.elements) ? json.elements : [], op);
         if (!candidates.length) throw new DesktopError("jev_no_candidates", `No enabled control in this window fits ${op}. Observe the window.`);
         let pick: Awaited<ReturnType<typeof pickTarget>>;
-        try { pick = await pickTarget(candidates, { app: String(json.app_name ?? ""), window: String(json.window_title ?? ""), action: op, request: description }, jevChooser(apiKey), signal); }
+        try { pick = await pickTarget(candidates, { app: String(json.app_name ?? ""), window: String(json.window_title ?? ""), action: op, request: description }, choose, signal); }
         catch (error) {
           if (signal?.aborted) throw error;
           const message = error instanceof Error ? error.message : "Jev request failed.";
-          throw new DesktopError(message.startsWith("Vercel AI Gateway") ? "jev_unavailable" : "jev_error", `${message} Observe and use index instead.`);
+          throw new DesktopError(error instanceof ClassifierRefusal ? "jev_unavailable" : "jev_error", `${message} Observe and use index instead.`);
         }
         if (!pick.chosen) {
           if (pick.none) throw new DesktopError("jev_none", `Jev found no control matching ${JSON.stringify(description)}. Observe the window or describe it differently.`);
@@ -355,6 +390,10 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
                 setJev(false, ctx);
                 if (ctx.hasUI) ctx.ui.notify(`Desktop JEV turned off: ${error.message}`, "warning");
               }
+              // Keep the 600-node JEV walk snapshot intact so indices suggested in jev_needs_index/jev_uncertain stay valid.
+              if (jevWalkState && (error.code === "jev_needs_index" || error.code === "jev_uncertain" || error.code === "jev_none" || error.code === "jev_no_candidates")) {
+                preserveJevSnapshot = true;
+              }
               log.push(`${prefix} → failed [${error.code}]: ${error.message}`);
               failed = true;
               break;
@@ -379,14 +418,13 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
           if (step.op === "launch" && !result.isError) {
             const json = result.json ?? {};
             const window = Array.isArray(json.windows) ? json.windows.find((entry: any) => entry?.window_id !== undefined) : undefined;
-            const pid = Number(json.pid ?? window?.pid);
+            const rawPid = json.pid ?? window?.pid;
+            const pid = typeof rawPid === "number" && Number.isFinite(rawPid) ? rawPid : undefined;
             desktop.lastTarget = undefined;
-            target = Number.isFinite(pid) ? await waitForWindow(pid) : undefined;
+            target = pid !== undefined ? await waitForWindow(pid) : undefined;
             if (!target) throw new DesktopError("target_not_found", "The launched app has no unique visible window. Observe its windows before acting.");
-            if (target) {
-              desktop.lastTarget = target;
-              log.push(`   target pid=${target.pid} window_id=${target.windowId}`);
-            }
+            desktop.lastTarget = target;
+            log.push(`   target pid=${target.pid} window_id=${target.windowId}`);
           }
           if (result.isError) {
             failed = true;
@@ -408,12 +446,16 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
           if (result.isError || status === "unsatisfied") failed = true;
         }
         if (params.observe !== false && (target ?? desktop.lastTarget)) {
-          const at = target ?? desktop.lastTarget!;
-          // Pixel steps mean the agent is working from images: return one, so the next pixel step has a current screenshot.
-          const pixels = params.steps.some(step => step.op === "drag" || ("x" in step && step.x !== undefined));
-          const state = await call(ctx, "get_window_state", stateArgs(at, { ...params, screenshot: params.screenshot ?? (pixels || undefined) }), signal);
-          log.push("", state.isError ? `state unavailable: ${renderAction(state)}` : renderState(state, params));
-          images = state.images;
+          if (preserveJevSnapshot && jevWalkState) {
+            log.push("", renderState(jevWalkState, params));
+          } else {
+            const at = target ?? desktop.lastTarget!;
+            // Pixel steps mean the agent is working from images: return one, so the next pixel step has a current screenshot.
+            const pixels = params.steps.some(step => step.op === "drag" || ("x" in step && step.x !== undefined));
+            const state = await call(ctx, "get_window_state", stateArgs(at, { ...params, screenshot: params.screenshot ?? (pixels || undefined) }), signal);
+            log.push("", state.isError ? `state unavailable: ${renderAction(state)}` : renderState(state, params));
+            images = state.images;
+          }
         }
         return output(log.join("\n"), { steps: params.steps.length, failed, ...(target ?? {}) }, images, failed);
       }
@@ -479,8 +521,8 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
         try {
           if (arg === "jev on" || arg === "jev off") {
             setJev(arg === "jev on", ctx);
-            const keyless = jev && !(await jevApiKey().catch(() => undefined));
-            notify(`Desktop JEV ${jev ? "on" : "off"} for this conversation.${keyless ? " No AI Gateway key resolves for this profile, so targets will fail." : ""}`, keyless ? "warning" : "info");
+            const keyless = jev && !(await resolveJevChooser());
+            notify(`Desktop JEV ${jev ? "on" : "off"} for this conversation.${keyless ? " No JEV classifier key resolves for this profile, so targets will fail." : ""}`, keyless ? "warning" : "info");
             return;
           }
           if (arg === "reset") { await serial(() => desktop.reset()); notify("Desktop sessions ended and element indices cleared."); return; }

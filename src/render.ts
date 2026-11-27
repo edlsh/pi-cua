@@ -4,11 +4,26 @@ import type { DriverResult } from "./driver.ts";
 export const TREE_CHAR_LIMIT = 40_000;
 export const MIN_WINDOW_SIZE = 40;
 
-const SECURE_VALUE = /^(\s*-\s*(?:\[\d+\]\s*)?AXSecureTextField\b.*?)\s=\s".*"(.*)$/;
+const SECURE_VALUE = /^(\s*-\s*(?:\[\d+\]\s*)?AXSecureTextField\b[^\n]*?)\s=\s"(?:[^"\\]|\\.)*"(.*)$/;
+const PASSWORD_INDEX_VALUE = /^(\s*(?:[-+~]\s*)?\[(\d+)\]\s*[^\n]*?)\s=\s"(?:[^"\\]|\\.)*"(.*)$/;
 
-/** Hides secure text field values even if the driver ever returns them. */
-export function redactTree(tree: string): string {
-  return tree.split("\n").map(line => line.replace(SECURE_VALUE, "$1 = \"••••\"$2")).join("\n");
+/** Hides secure text field values and any driver-flagged password elements even if the driver ever returns them. */
+export function redactTree(tree: string, passwordIndices?: ReadonlySet<number>): string {
+  return tree.split("\n").map(line => {
+    const secure = line.replace(SECURE_VALUE, "$1 = \"••••\"$2");
+    if (!passwordIndices?.size) return secure;
+    return secure.replace(PASSWORD_INDEX_VALUE, (match, head: string, index: string, tail: string) =>
+      passwordIndices.has(Number(index)) ? `${head} = "••••"${tail}` : match);
+  }).join("\n");
+}
+
+function passwordElementIndices(elements: unknown): Set<number> {
+  const indices = new Set<number>();
+  if (!Array.isArray(elements)) return indices;
+  for (const element of elements) {
+    if (element?.is_password === true && typeof element?.element_index === "number") indices.add(element.element_index);
+  }
+  return indices;
 }
 
 function quote(value: unknown): string {
@@ -74,7 +89,9 @@ function showValues(tree: string, elements: unknown): string {
   if (!Array.isArray(elements)) return tree;
   const values = new Map<number, string>();
   for (const element of elements) {
-    const value = Number(element?.value);
+    const raw = element?.value;
+    if (raw === null || raw === undefined || (typeof raw === "string" && !raw.trim())) continue;
+    const value = Number(raw);
     if (VALUE_ROLES.has(element?.role) && typeof element.element_index === "number" && Number.isFinite(value)) {
       values.set(element.element_index, String(Math.round(value * 100) / 100));
     }
@@ -88,18 +105,19 @@ function showValues(tree: string, elements: unknown): string {
 
 const VALUE_CHAR_LIMIT = 300;
 const TREE_ROW = /^\s*- /;
+const DIFF_ROW = /^(?:since |no change|reindexed:|\s*[-+~] )/;
 // AppKit custom actions arrive as an unresolved selector dump; their name is the only useful part.
 const CUSTOM_ACTION = /name:([^\n,\]]*)\ntarget:0x[0-9a-fA-F]+\nselector:\(null\)/g;
-const QUOTED_VALUE = / = "(.*?)"(?=$| \(| \[)/;
+const QUOTED_VALUE = / = "((?:[^"\\]|\\.)*)"(?=$| \(| \[)/;
 
 /**
  * One row per element: collapses custom-action dumps, folds multi-line values into their row as \n,
  * drops fragments before the first row (a query can cut a row mid-value), and caps long values.
  */
-function normalizeTree(tree: string, valueLimit = VALUE_CHAR_LIMIT): string {
+export function normalizeTree(tree: string, valueLimit = VALUE_CHAR_LIMIT, rowPattern = TREE_ROW): string {
   const rows: string[] = [];
   for (const line of tree.replace(CUSTOM_ACTION, "$1").split("\n")) {
-    if (TREE_ROW.test(line)) rows.push(line);
+    if (rowPattern.test(line)) rows.push(line);
     else if (rows.length) rows[rows.length - 1] += `\\n${line}`;
   }
   if (!Number.isFinite(valueLimit)) return rows.join("\n");
@@ -121,22 +139,28 @@ function capRow(row: string): string {
 
 export function renderState(result: DriverResult, options: { menus?: boolean; query?: string; note?: string } = {}): string {
   const json = result.json ?? {};
+  const isDiff = !json.tree_markdown && typeof json.tree_diff === "string" && json.tree_diff.trim().length > 0;
   const header = [
     `${json.app_name ?? "?"} ${quote(json.window_title)} pid=${json.pid} window_id=${json.window_id}`,
     json.snapshot_id ? `snapshot=${json.snapshot_id}` : "",
+    isDiff && json.since_status ? `diff=${json.since_status}` : "",
     // total_element_count counts only what the walk reached, so N/N would read as complete after a cut walk.
-    json.returned_element_count !== undefined ? `elements=${json.returned_element_count}${json.truncated ? " (partial)" : `/${json.total_element_count ?? "?"}`}` : "",
+    !isDiff && json.returned_element_count !== undefined ? `elements=${json.returned_element_count}${json.truncated ? " (partial)" : `/${json.total_element_count ?? "?"}`}` : "",
   ].filter(Boolean).join(" ");
   const notes: string[] = options.note ? [options.note] : [];
   if (json.truncated) notes.push(`truncated (${json.truncation_reason ?? "budget"})${json.nodes_pending ? `: ${json.nodes_pending}+ nodes not walked` : ""}; use query to target a control, or raise max_elements/timeout_ms`);
   if (json.degraded) notes.push(`degraded: ${json.degraded_reason ?? "unknown"}`);
   if (json.escalation) notes.push(`escalation: ${compact(json.escalation)}`);
   if (json.screenshot_width) notes.push(`screenshot ${json.screenshot_width}x${json.screenshot_height} (x,y are pixels of this image)`);
-  const raw = String(json.tree_markdown ?? "").split("\n").filter(line => !DRIVER_PARTIAL_NOTE.test(line)).join("\n").trimEnd();
+  const rawSource = isDiff ? String(json.tree_diff) : String(json.tree_markdown ?? "");
+  const raw = rawSource.split("\n").filter(line => !DRIVER_PARTIAL_NOTE.test(line)).join("\n").trimEnd();
   // A query names the control the agent wants to read, so it gets full values.
-  let tree = redactTree(normalizeTree(raw, options.query ? Infinity : VALUE_CHAR_LIMIT));
-  tree = showValues(tree, json.elements);
-  if (!options.menus) tree = foldMenuBar(tree);
+  const limit = options.query ? Infinity : VALUE_CHAR_LIMIT;
+  let tree = redactTree(normalizeTree(raw, limit, isDiff ? DIFF_ROW : TREE_ROW), passwordElementIndices(json.elements));
+  if (!isDiff) {
+    tree = showValues(tree, json.elements);
+    if (!options.menus) tree = foldMenuBar(tree);
+  }
   if (tree.length > TREE_CHAR_LIMIT) {
     tree = `${tree.slice(0, TREE_CHAR_LIMIT)}\n… tree cut at ${TREE_CHAR_LIMIT} chars; use query or a lower max_elements`;
   }
