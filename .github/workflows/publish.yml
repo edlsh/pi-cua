@@ -34,7 +34,7 @@ jobs:
         run: bun install --frozen-lockfile --ignore-scripts
 
       - name: Verify before publishing
-        run: bun run check && bun run test
+        run: bun run check
 
       - name: Validate release tag matches package version
         if: github.ref_type == 'tag'

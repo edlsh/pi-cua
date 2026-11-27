@@ -1,6 +1,7 @@
 import type { DesktopAPI as ExtensionAPI, DesktopContext as ExtensionContext, DesktopResult as AgentToolResult, PromptEvent } from "./host.ts";
 import { setTimeout as sleep } from "node:timers/promises";
 import { z } from "zod";
+import { defaultAgentDir, readCuaConfig, resolveFileCloudflare, resolveFileJevKey } from "./config.ts";
 import { DesktopBackend, DesktopError, SDK_VERSION, SUPPORTED_CONTRACT, type DriverImage, type DriverResult } from "./driver.ts";
 import { ClassifierRefusal, DESTRUCTIVE, desktopCandidates, JEV_MIN_CONFIDENCE, jevChooser, pickTarget, WORKERS_AI_JEV, workersAiChooser, type Choose, type CloudflareCredentials } from "./jev.ts";
 import { compact, isVisibleWindow, pruneScreenshots, renderAction, renderApps, renderHealth, renderState, renderWindows, VALUE_ROLES } from "./render.ts";
@@ -39,6 +40,8 @@ export interface DesktopOptions {
   cloudflare?: () => Promise<CloudflareCredentials | undefined>;
   /** JEV classifier backend: "vercel" (default), "workers-ai", or "workers-ai/<model>". */
   jevClassifier?: string;
+  /** Profile directory containing cua.json (defaults to PI_CODING_AGENT_DIR or ~/.pi/agent). */
+  agentDir?: string;
 }
 
 interface Target { pid: number; windowId: number }
@@ -128,11 +131,16 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
       if (ctx.hasUI) ctx.ui.setStatus("desktop-jev", jev ? "Desktop JEV" : undefined);
     }
 
-    async function jevApiKey(): Promise<string | undefined> {
-      return process.env.AI_GATEWAY_API_KEY?.trim() || (await options.jevApiKey?.())?.trim() || undefined;
+    const agentDir = () => options.agentDir ?? defaultAgentDir("pi");
+
+    async function jevApiKey(signal?: AbortSignal): Promise<string | undefined> {
+      return process.env.AI_GATEWAY_API_KEY?.trim()
+        || (await options.jevApiKey?.())?.trim()
+        || (await resolveFileJevKey(agentDir(), signal))?.trim()
+        || undefined;
     }
 
-    async function cloudflareCredentials(): Promise<CloudflareCredentials | undefined> {
+    async function cloudflareCredentials(signal?: AbortSignal): Promise<CloudflareCredentials | undefined> {
       const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
       const apiKey = process.env.CLOUDFLARE_API_KEY?.trim();
       if (accountId && apiKey) return { accountId, apiKey };
@@ -140,21 +148,22 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
       if (resolved?.accountId?.trim() && resolved?.apiKey?.trim()) {
         return { accountId: resolved.accountId.trim(), apiKey: resolved.apiKey.trim() };
       }
-      return undefined;
+      return resolveFileCloudflare(agentDir(), signal);
     }
 
-    async function resolveJevChooser(): Promise<Choose | undefined> {
-      const spec = (options.jevClassifier ?? process.env.CUA_JEV_CLASSIFIER ?? "").trim();
+    async function resolveJevChooser(signal?: AbortSignal): Promise<Choose | undefined> {
+      const file = await readCuaConfig(agentDir(), signal);
+      const spec = (process.env.CUA_JEV_CLASSIFIER ?? options.jevClassifier ?? file.jevClassifier ?? "").trim();
       if (spec === "workers-ai" || spec.startsWith("workers-ai/")) {
-        const cf = await cloudflareCredentials().catch(() => undefined);
+        const cf = await cloudflareCredentials(signal);
         if (!cf) return undefined;
         const model = spec.startsWith("workers-ai/") ? spec.slice("workers-ai/".length) : WORKERS_AI_JEV;
         return workersAiChooser(cf, model);
       }
-      const key = await jevApiKey().catch(() => undefined);
+      const key = await jevApiKey(signal);
       if (key) return jevChooser(key);
       if (!spec) {
-        const cf = await cloudflareCredentials().catch(() => undefined);
+        const cf = await cloudflareCredentials(signal);
         if (cf) return workersAiChooser(cf, WORKERS_AI_JEV);
       }
       return undefined;
@@ -362,8 +371,13 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
       let preserveJevSnapshot = false;
       async function jevLocate(op: string, description: string): Promise<{ index: number; note: string }> {
         if (!jev) throw new DesktopError("jev_off", "JEV mode is off; the user can enable it with /desktop jev on. Observe and use index instead.");
-        const choose = await resolveJevChooser();
-        if (!choose) throw new DesktopError("jev_not_configured", "No JEV classifier key is configured (set AI_GATEWAY_API_KEY or Cloudflare Workers AI credentials). Observe and use index instead.");
+        let choose: Choose | undefined;
+        try { choose = await resolveJevChooser(signal); }
+        catch (error) {
+          if (signal?.aborted) throw error;
+          throw new DesktopError("jev_config_error", `${error instanceof Error ? error.message : String(error)} Observe and use index instead.`);
+        }
+        if (!choose) throw new DesktopError("jev_not_configured", "No JEV classifier key is configured (set AI_GATEWAY_API_KEY, Cloudflare Workers AI credentials, or cua.json). Observe and use index instead.");
         const at = await needTarget();
         const state = await checked(ctx, "get_window_state", { pid: at.pid, window_id: at.windowId, include_screenshot: false, max_elements: JEV_MAX_ELEMENTS, timeout_ms: DEFAULT_TIMEOUT_MS }, signal);
         jevWalkState = state;
@@ -554,8 +568,13 @@ export function createDesktopExtension(options: DesktopOptions = {}) {
         try {
           if (arg === "jev on" || arg === "jev off") {
             setJev(arg === "jev on", ctx);
-            const keyless = jev && !(await resolveJevChooser());
-            notify(`Desktop JEV ${jev ? "on" : "off"} for this conversation.${keyless ? " No JEV classifier key resolves for this profile, so targets will fail." : ""}`, keyless ? "warning" : "info");
+            if (!jev) { notify("Desktop JEV off for this conversation."); return; }
+            try {
+              const ready = Boolean(await resolveJevChooser());
+              notify(`Desktop JEV on for this conversation.${ready ? "" : " No JEV classifier key resolves for this profile, so targets will fail."}`, ready ? "info" : "warning");
+            } catch (error) {
+              notify(`Desktop JEV on for this conversation, but configuration failed: ${error instanceof Error ? error.message : String(error)}`, "warning");
+            }
             return;
           }
           if (arg === "reset") { await serial(() => desktop.reset()); notify("Desktop sessions ended and element indices cleared."); return; }

@@ -10,7 +10,7 @@ This package was renamed from `pi-desktop` and is published on npm as `@edlsh/pi
 - `desktop_act`: up to 20 batched steps (`click`, `type`, `set_value`, `key`, `hotkey`, `scroll`, `drag`, `menu`, `launch`, `focus`, `resize`, `clipboard`, `wait`), optional `verify` predicates, and a fresh state afterwards.
 - `desktop_driver`: direct access to other cua-driver tools such as `zoom`, `page`, and `browser_*`. The session label is set by pi-cua; `args.session` is refused.
 - `/desktop`: status only, never a toggle: driver version, permissions, this conversation's session, and JEV. Anything other than the subcommands below shows usage; it is never sent to the agent as a prompt.
-- `/desktop jev on|off`: JEV targeting for this conversation, off by default. While on, `desktop_act` click/double_click/right_click/type/set_value/scroll steps accept `target: "Save button in the toolbar"` instead of `index`. The `typesafe-ai/jev` model picks the control from a fresh walk and acts only at confidence ≥ 0.5; otherwise the step fails with the top candidates. Controls whose label looks destructive (delete, send, buy, …) are never clicked by target; the agent must pass the index. Needs a Vercel AI Gateway key: `AI_GATEWAY_API_KEY`, or a `jevApiKey` resolver passed to `createDesktopExtension` by a local loader (see Setup), called on first use. If the gateway refuses Jev for billing or key reasons (HTTP 402, 401, or 403), the step fails with `jev_unavailable` and JEV turns itself off with a notice. Privacy: control labels and visible row text of the target window are sent to Vercel AI Gateway; the menu bar, secure fields, disabled controls, and typed text-field values are not.
+- `/desktop jev on|off`: JEV targeting for this conversation, off by default. While on, `desktop_act` click/double_click/right_click/type/set_value/scroll steps accept `target: "Save button in the toolbar"` instead of `index`. The `typesafe-ai/jev` model (Vercel AI Gateway) or `typesafe/jev-1.14.0` (Cloudflare Workers AI) picks the control from a fresh walk and acts only at confidence ≥ 0.5; otherwise the step fails with the top candidates while keeping the walk's indices intact. Controls whose label looks destructive (delete, send, buy, …) are never clicked by target; the agent must pass the index. Credentials resolve from env (`AI_GATEWAY_API_KEY`, or `CLOUDFLARE_ACCOUNT_ID` + `CLOUDFLARE_API_KEY` with optional `CUA_JEV_CLASSIFIER=workers-ai`), `<agentDir>/cua.json` using `"!command"` resolvers (`jevApiKey`, `cloudflareAccountId`, `cloudflareApiKey`, `jevClassifier`), or `createDesktopExtension` options. If the classifier service refuses for billing or key reasons (HTTP 402, 401, or 403), the step fails with `jev_unavailable` and JEV turns itself off with a notice. Privacy: control labels and visible row text of the target window are sent to the configured JEV provider; the menu bar, secure/password fields, disabled controls, and typed text-field values (including multi-line text areas) are not.
 - `/desktop reset`: ends this conversation's driver sessions and clears element indices.
 
 While the extension is enabled, a one-line nudge in the turn's prompt guidelines steers native-app work to these tools; there is no separate switch for it. Turn the whole extension off with `pi config` or an `extensions` filter in Pi's `settings.json`.
@@ -29,8 +29,8 @@ Requires Pi 1.x on Node 22.19 or newer, and `CuaDriver.app` 0.64 in `/Applicatio
 
 The SDK's Node addon connects to the daemon's socket. Load the extension one way, never both (duplicate tools):
 
-- From npm: `pi install npm:@edlsh/pi-cua`. It reads the JEV key only from `AI_GATEWAY_API_KEY`.
-- From a checkout, after `bun install`: `pi install /path/to/pi-cua` (or `pi -e /path/to/pi-cua` for one run), which also reads the JEV key only from `AI_GATEWAY_API_KEY`; or a local loader in `~/.pi/agent/extensions/` that imports `createDesktopExtension` from the checkout's `src/index.ts` and calls it with Pi's API, for example to pass a `jevApiKey` resolver backed by your configured secrets manager. No cast is needed: `src/host.ts` is the host contract, and `bun run check` verifies Pi's `ExtensionAPI` against it.
+- From npm: `pi install npm:@edlsh/pi-cua`. Reads JEV credentials from env vars or `~/.pi/agent/cua.json` (with `"!command"` resolvers; literal secret strings are refused).
+- From a checkout, after `bun install`: `pi install /path/to/pi-cua` (or `pi -e /path/to/pi-cua` for one run); or a local loader in `~/.pi/agent/extensions/` that imports `createDesktopExtension` from the checkout's `src/index.ts` and calls it with Pi's API, for example to pass a `jevApiKey` or `cloudflare` resolver backed by your configured secrets manager. No cast is needed: `src/host.ts` is the host contract, and `bun run typecheck` verifies Pi's `ExtensionAPI` against it.
 
 Driver sessions are labeled `pi-<profile>-<session>`, where the profile comes from `PI_PROFILE` (default `default`).
 
@@ -39,7 +39,7 @@ The package bundles the `desktop` agent skill in `skills/desktop`, declared unde
 ## Development
 
 ```sh
-bun run check                     # typecheck, including the Pi host contract
+bun run check                     # typecheck (including Pi host contract), tests, and package verification
 bun run test                      # unit tests, then Pi load, schema-validation, and agent-turn tests
 bun run test:live                 # macOS: a real Pi session observes a compiled fixture window
 SMOKE_ACT=1 bun run test:live     # also clicks, types, drags, scrolls, resizes, and uses menus in the fixture

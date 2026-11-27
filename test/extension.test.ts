@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 type Reply = Partial<{ text: string; json: unknown; isError: boolean; errorCode: string; image: string }>;
 type Handler = (args: Record<string, any>) => Reply | Promise<Reply>;
@@ -882,4 +885,69 @@ test("newer driver step fields (menu delivery, from_zoom, drag button/steps, key
 
   await command("status");
   expect(notices.at(-1)).toContain("health ok — Accessibility is granted. Screen Recording is granted.");
+});
+
+test("cua.json resolves !command credentials, refuses literal keys and malformed JSON without echoing secrets", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-cua-cfg-"));
+  const savedEnv = { key: process.env.AI_GATEWAY_API_KEY, cfAcct: process.env.CLOUDFLARE_ACCOUNT_ID, cfKey: process.env.CLOUDFLARE_API_KEY, cls: process.env.CUA_JEV_CLASSIFIER };
+  delete process.env.AI_GATEWAY_API_KEY;
+  delete process.env.CLOUDFLARE_ACCOUNT_ID;
+  delete process.env.CLOUDFLARE_API_KEY;
+  delete process.env.CUA_JEV_CLASSIFIER;
+  const realFetch = globalThis.fetch;
+  let authHeader = "";
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    authHeader = String((init.headers as Record<string, string>)?.Authorization ?? "");
+    return new Response(JSON.stringify({ answers: { target: { type: "choice", choice: "1", confidence: 0.9, probabilities: { "1": 0.9 } } } }));
+  }) as typeof fetch;
+  try {
+    handlers.get_window_state = () => stateReply(
+      [{ role: "AXWindow" }, { role: "AXButton", label: "Save", actions: ["AXPress"] }],
+      '- [0] AXWindow "Notes"\n  - [1] AXButton (Save) [actions=[press]]',
+    );
+    handlers.click = () => ({ json: { effect: "confirmed" } });
+    await writeFile(join(dir, "cua.json"), JSON.stringify({ jevApiKey: "!printf synthetic-file-key" }));
+    const { run, command } = load({ agentDir: dir });
+    await command("jev on");
+    const acted = await run("desktop_act", { app: "Notes", steps: [{ op: "click", target: "Save" }], observe: false });
+    expect(acted.isError).toBeUndefined();
+    expect(authHeader).toBe("Bearer synthetic-file-key");
+
+    await writeFile(join(dir, "cua.json"), JSON.stringify({ jevApiKey: "literal-secret-value" }));
+    const literal = await run("desktop_act", { app: "Notes", steps: [{ op: "click", target: "Save" }], observe: false });
+    expect(literal.isError).toBe(true);
+    expect(literal.text).toContain("jev_config_error");
+    expect(literal.text).toContain("!command");
+    expect(literal.text).not.toContain("literal-secret-value");
+
+    await writeFile(join(dir, "cua.json"), "{broken-secret-json");
+    const malformed = await run("desktop_act", { app: "Notes", steps: [{ op: "click", target: "Save" }], observe: false });
+    expect(malformed.isError).toBe(true);
+    expect(malformed.text).toContain("Invalid JSON");
+    expect(malformed.text).not.toContain("broken-secret-json");
+  } finally {
+    globalThis.fetch = realFetch;
+    if (savedEnv.key !== undefined) process.env.AI_GATEWAY_API_KEY = savedEnv.key;
+    if (savedEnv.cfAcct !== undefined) process.env.CLOUDFLARE_ACCOUNT_ID = savedEnv.cfAcct;
+    if (savedEnv.cfKey !== undefined) process.env.CLOUDFLARE_API_KEY = savedEnv.cfKey;
+    if (savedEnv.cls !== undefined) process.env.CUA_JEV_CLASSIFIER = savedEnv.cls;
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("desktop_observe renders apps, desktop screenshots, and permissions", async () => {
+  handlers.list_apps = () => ({ json: { apps: [{ pid: 10, name: "Notes", bundle_id: "com.apple.Notes", running: true, active: true }, { name: "Preview", running: false }] } });
+  handlers.get_desktop_state = () => ({ json: { screenshot_width: 1280, screenshot_height: 800 }, image: "AAAA" });
+  handlers.check_permissions = () => ({ text: "Accessibility: granted" });
+  const { run } = load();
+  const running = await run("desktop_observe", { action: "apps" });
+  expect(running.text).toContain("1 app(s):");
+  expect(running.text).toContain("pid=10 Notes com.apple.Notes [active]");
+  const allApps = await run("desktop_observe", { action: "apps", all: true });
+  expect(allApps.text).toContain("not-running Preview");
+  const desktop = await run("desktop_observe", { action: "desktop" });
+  expect(desktop.text).toContain("desktop screenshot 1280x800");
+  expect(desktop.content.some((p: any) => p.type === "image")).toBe(true);
+  const perms = await run("desktop_observe", { action: "permissions" });
+  expect(perms.text).toContain("Accessibility: granted");
 });
