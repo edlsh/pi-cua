@@ -6,27 +6,45 @@ type Handler = (args: Record<string, any>) => Reply | Promise<Reply>;
 const calls: { tool: string; args: Record<string, any> }[] = [];
 let handlers: Record<string, Handler> = {};
 
+let driverAvailable = true;
+let driverVersion = "0.34.0";
+let driverPid = 1;
+let listedTools: Record<string, unknown>[] = [
+  { name: "page", input_schema: { required: ["action", "pid", "window_id"], properties: { action: {}, pid: {}, window_id: {}, session: {} } } },
+  { name: "list_windows", input_schema: { properties: { app: {}, pid: {}, on_screen_only: {} } } },
+  { name: "list_sessions", input_schema: { properties: { cursor: {}, limit: {} } } },
+  { name: "browser_select", input_schema: { properties: { target_id: {}, tab_id: {}, ref: {}, value: {}, session: {} } } },
+  { name: "set_agent_cursor_enabled", input_schema: { required: ["session", "enabled"], properties: { session: {}, enabled: {} } } },
+];
+let connectCount = 0;
+
 mock.module("@trycua/cua-driver", () => ({
-  CuaDriver: { connect: () => ({
-    isAvailable: () => true,
-    metadata: async () => ({ driverVersion: "0.34.0", contractVersion: "0.9.0", pid: 1 }),
-    listToolsJson: async () => JSON.stringify({ tools: [{ name: "page", inputSchema: { required: ["action", "pid", "window_id"] } }] }),
-    callTool: async (tool: string, json: string) => {
-      const args = JSON.parse(json);
-      calls.push({ tool, args });
-      const reply = (await handlers[tool]?.(args)) ?? {};
-      return {
-        text: reply.text ?? "", isError: reply.isError ?? false, errorCode: reply.errorCode, degraded: false, rawJson: "{}",
-        structuredJson: reply.json === undefined ? undefined : JSON.stringify(reply.json),
-        images: reply.image ? [{ mimeType: "image/png", dataBase64: reply.image }] : [],
-      };
-    },
-  }) },
+  CuaDriver: { connect: () => {
+    connectCount++;
+    const versionAtConnect = driverVersion;
+    const pidAtConnect = driverPid;
+    return {
+      isAvailable: () => driverAvailable,
+      metadata: async () => ({ driverVersion: versionAtConnect, contractVersion: "0.9.0", pid: pidAtConnect }),
+      listToolsJson: async () => JSON.stringify({ tools: listedTools }),
+      callTool: async (tool: string, json: string) => {
+        const args = JSON.parse(json);
+        calls.push({ tool, args });
+        const reply = (await handlers[tool]?.(args)) ?? {};
+        return {
+          text: reply.text ?? "", isError: reply.isError ?? false, errorCode: reply.errorCode, degraded: false, rawJson: "{}",
+          structuredJson: reply.json === undefined ? undefined : JSON.stringify(reply.json),
+          images: reply.image ? [{ mimeType: "image/png", dataBase64: reply.image }] : [],
+        };
+      },
+    };
+  } },
 }));
 
 const { createDesktopExtension } = await import("../src/index.ts");
 
 // The driver is mocked, so pin the macOS guard open and let the unit suite run on any host; test/live covers real macOS.
+const onMacOS = process.platform === "darwin";
 Object.defineProperty(process, "platform", { value: "darwin" });
 type DesktopOptions = NonNullable<Parameters<typeof createDesktopExtension>[0]>;
 
@@ -87,6 +105,9 @@ afterEach(async () => {
 beforeEach(() => {
   snapshotCounter = 0;
   calls.length = 0;
+  driverAvailable = true;
+  driverVersion = "0.34.0";
+  driverPid = 1;
   handlers = { list_windows: () => ({ json: { windows: [window()] } }) };
 });
 
@@ -393,7 +414,7 @@ test("desktop_driver argument errors carry the tool's input schema so one retry 
   const result = await run("desktop_driver", { tool: "page", args: {} });
   expect(result.isError).toBe(true);
   expect(result.text).toContain("Missing required parameter: action");
-  expect(result.text).toContain("input schema for page: {\"required\":[\"action\",\"pid\",\"window_id\"]}");
+  expect(result.text).toContain('input schema for page: {"required":["action","pid","window_id"]');
 });
 
 test("desktop_driver refuses host-configuration tools without reaching the driver", async () => {
@@ -514,7 +535,8 @@ test("launch targets a unique visible window rather than a returned helper windo
   expect(calls.find(call => call.tool === "hotkey")!.args.window_id).toBe(420);
 });
 
-test("large screenshots fit the inline byte budget without changing pixel coordinates", async () => {
+// Re-encoding shells out to /usr/bin/sips, so this one needs a real Mac.
+test.skipIf(!onMacOS)("large screenshots fit the inline byte budget without changing pixel coordinates", async () => {
   const { default: sharp } = await import("sharp");
   const input = await sharp({ create: { width: 1000, height: 600, channels: 3, background: "#406080" } })
     .png({ compressionLevel: 0 }).toBuffer();
@@ -524,7 +546,7 @@ test("large screenshots fit the inline byte budget without changing pixel coordi
   const result = await run("desktop_observe", { action: "screenshot", pid: 10, window_id: 100 });
   expect(result.isError).toBeUndefined();
   const image = result.content.find((part: any) => part.type === "image");
-  expect(image.mimeType).toBe("image/webp");
+  expect(image.mimeType).toBe("image/jpeg");
   expect(image.data.length).toBeLessThanOrEqual(1_000_000);
   const decoded = sharp(Buffer.from(image.data, "base64"));
   const metadata = await decoded.metadata();
@@ -590,4 +612,188 @@ test("a query cut off by the default walk budget searches deeper once and says s
   calls.length = 0;
   await run("desktop_observe", { action: "state", pid: 10, window_id: 100, query: "Archive", max_elements: 100 });
   expect(calls.filter(call => call.tool === "get_window_state")).toHaveLength(1);
+});
+
+test("session injection follows the daemon's live tool schemas, and install_extension is blocked", async () => {
+  handlers.browser_select = () => ({ json: { ok: true } });
+  handlers.set_agent_cursor_enabled = () => ({ json: { ok: true } });
+  handlers.list_sessions = () => ({ json: { sessions: [] } });
+  const { run } = load();
+  await run("desktop_driver", { tool: "browser_select", args: { target_id: "t", tab_id: "tab", ref: "p1:1", value: "a" } });
+  await run("desktop_driver", { tool: "set_agent_cursor_enabled", args: { enabled: false } });
+  await run("desktop_driver", { tool: "list_sessions", args: {} });
+  expect(calls.find(c => c.tool === "browser_select")!.args.session).toBe("pi-default-abc-123");
+  expect(calls.find(c => c.tool === "set_agent_cursor_enabled")!.args.session).toBe("pi-default-abc-123");
+  expect(calls.find(c => c.tool === "list_sessions")!.args.session).toBeUndefined();
+
+  const blocked = await run("desktop_driver", { tool: "install_extension", args: { name: "perception", confirm: true } });
+  expect(blocked.isError).toBe(true);
+  expect(blocked.text).toContain("blocked_tool");
+  expect(calls.some(c => c.tool === "install_extension")).toBe(false);
+});
+
+test("JEV strips multi-line text-area values and password inputs, preserves indices after refusal, and ranks low-confidence multi-chunk none", async () => {
+  const manyElements = Array.from({ length: 170 }, (_, i) =>
+    i === 0 ? { role: "AXWindow" }
+      : i === 1 ? { role: "AXTextArea", label: "Notes", actions: ["AXConfirm"] }
+      : i === 2 ? { role: "AXTextField", label: "PIN", is_password: true, actions: ["AXConfirm"] }
+      : i === 160 ? { role: "AXButton", label: "Delete Account", actions: ["AXPress"] }
+      : { role: "AXButton", label: `Item ${i}`, actions: ["AXPress"] },
+  );
+  const tree = [
+    "- [0] AXWindow \"Mail\"",
+    "  - [1] AXTextArea (Notes) = \"first secret line\nsecond secret line\" [actions=[name:edit\ntarget:0x0\nselector:(null)]]",
+    "  - [2] AXTextField (PIN) = \"9999\" [actions=[confirm]]",
+    ...Array.from({ length: 167 }, (_, offset) => {
+      const idx = offset + 3;
+      return `  - [${idx}] AXButton (${idx === 160 ? "Delete Account" : `Item ${idx}`}) [actions=[press]]`;
+    }),
+  ].join("\n");
+  handlers.get_window_state = args => {
+    const cap = args.max_elements ?? 150;
+    const sliced = manyElements.slice(0, cap);
+    return stateReply(sliced as any, cap >= 170 ? tree : tree.split("\n").slice(0, 10).join("\n"));
+  };
+  handlers.click = () => ({ json: { effect: "confirmed" } });
+
+  const bodies: string[] = [];
+  const realFetch = globalThis.fetch;
+  let mode: "destructive" | "uncertain_none" = "destructive";
+  globalThis.fetch = (async (_url: string, init: RequestInit) => {
+    const body = String(init.body);
+    bodies.push(body);
+    const parsed = JSON.parse(body);
+    const keys = Object.keys(parsed.questions.target.criteria);
+    if (mode === "destructive") {
+      if (keys.includes("160")) {
+        return new Response(JSON.stringify({ answers: { target: { type: "choice", choice: "160", confidence: 0.92, probabilities: { "160": 0.92 } } } }));
+      }
+      return new Response(JSON.stringify({ answers: { target: { type: "choice", choice: "none", confidence: 0.95, probabilities: { none: 0.95 } } } }));
+    }
+    const firstRef = keys.find(k => k !== "none")!;
+    return new Response(JSON.stringify({ answers: { target: { type: "choice", choice: "none", confidence: 0.35, probabilities: { none: 0.35, [firstRef]: 0.3 } } } }));
+  }) as typeof fetch;
+
+  try {
+    const { run, command } = load({ jevApiKey: async () => "test-key" });
+    await command("jev on");
+    const refused = await run("desktop_act", { app: "Notes", steps: [{ op: "click", target: "delete account" }] });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("jev_needs_index");
+    expect(refused.text).toContain("index 160");
+    const sentPayload = bodies.join("\n");
+    expect(sentPayload).not.toContain("first secret line");
+    expect(sentPayload).not.toContain("second secret line");
+    expect(sentPayload).not.toContain("target:0x0");
+    expect(sentPayload).not.toContain("PIN");
+    const confirmed = await run("desktop_act", { app: "Notes", steps: [{ op: "click", index: 160 }], observe: false });
+    expect(confirmed.isError).toBeUndefined();
+    expect(calls.filter(c => c.tool === "click").at(-1)!.args.element_token).toMatch(/:160$/);
+
+    mode = "uncertain_none";
+    const uncertain = await run("desktop_act", { app: "Notes", steps: [{ op: "click", target: "ambiguous button" }] });
+    expect(uncertain.isError).toBe(true);
+    expect(uncertain.text).toContain("jev_uncertain");
+    expect(uncertain.text).toMatch(/p=0\.30/);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("renderState redacts password elements without swallowing trailing quotes, ignores null slider values, and renders tree_diff", async () => {
+  handlers.get_window_state = args => {
+    if (args.since) {
+      return {
+        json: {
+          app_name: "Notes", window_title: "Notes", pid: 10, window_id: 100, snapshot_id: "s00000002",
+          since: "latest", since_status: "diff",
+          tree_diff: 'since s00000001: 0 added, 1 changed, 0 removed.\n~ [2] AXStaticText = "Count 1"',
+          elements: [],
+        },
+      };
+    }
+    const reply = stateReply(
+      [
+        { role: "AXWindow" },
+        { role: "AXSecureTextField", label: 'Enter "pass"' },
+        { role: "AXTextField", label: "Web Password", is_password: true } as any,
+        { role: "AXProgressIndicator", label: "Loading" },
+      ],
+      [
+        '- [0] AXWindow "Login"',
+        '  - [1] AXSecureTextField = "hunter2" (Enter "pass") [actions=[press]]',
+        '  - [2] AXTextField (Web Password) = "websecret" [actions=[confirm]]',
+        '  - [3] AXProgressIndicator (Loading)',
+      ].join("\n"),
+    );
+    (reply.json.elements[3] as any).value = null;
+    return reply;
+  };
+  const { run } = load();
+  const state = await run("desktop_observe", { action: "state", pid: 10, window_id: 100 });
+  expect(state.text).not.toContain("hunter2");
+  expect(state.text).not.toContain("websecret");
+  expect(state.text).toContain('(Enter "pass")');
+  expect(state.text).not.toContain('AXProgressIndicator (Loading) = "0"');
+
+  const diff = await run("desktop_driver", { tool: "get_window_state", args: { pid: 10, window_id: 100, since: "latest" } });
+  expect(diff.text).toContain('~ [2] AXStaticText = "Count 1"');
+  expect(diff.text).not.toContain("(no accessibility tree)");
+});
+
+test("daemon restart clears stale metadata and reconnects on the next call", async () => {
+  handlers.check_permissions = () => ({ text: "Accessibility: granted" });
+  const { command, notices } = load();
+  await command("status");
+  expect(notices.at(-1)).toContain("cua-driver 0.34.0");
+  expect(notices.at(-1)).toContain("pid 1");
+
+  const beforeConnects = connectCount;
+  driverAvailable = false;
+  await command("reset");
+  driverVersion = "0.64.2";
+  driverPid = 999;
+  driverAvailable = true;
+  await command("status");
+  expect(connectCount).toBeGreaterThan(beforeConnects);
+  expect(notices.at(-1)).toContain("cua-driver 0.64.2");
+  expect(notices.at(-1)).toContain("pid 999");
+});
+
+test("JEV supports Cloudflare Workers AI and turns itself off on Cloudflare billing/auth refusals", async () => {
+  handlers.get_window_state = () => stateReply(
+    [{ role: "AXWindow" }, { role: "AXPopUpButton", label: "Country", actions: ["AXPress"] }],
+    '- [0] AXWindow "Form"\n  - [1] AXPopUpButton (Country) [actions=[press]]',
+  );
+  handlers.set_value = () => ({ json: { effect: "confirmed" } });
+  const realFetch = globalThis.fetch;
+  let status = 200;
+  let requestedUrl = "";
+  globalThis.fetch = (async (url: string) => {
+    requestedUrl = String(url);
+    if (status !== 200) return new Response(JSON.stringify({ success: false, errors: [{ code: 2021 }] }), { status });
+    return new Response(JSON.stringify({
+      success: true,
+      result: { state: "Completed", result: { answers: { target: { type: "choice", choice: "1", confidence: 0.91, probabilities: { "1": 0.91 } } } } },
+    }));
+  }) as typeof fetch;
+  try {
+    const { run, command } = load({
+      jevClassifier: "workers-ai",
+      cloudflare: async () => ({ accountId: "acct-123", apiKey: "cf-token" }),
+    });
+    await command("jev on");
+    const acted = await run("desktop_act", { app: "Notes", steps: [{ op: "set_value", target: "country dropdown", value: "US" }], observe: false });
+    expect(acted.isError).toBeUndefined();
+    expect(requestedUrl).toContain("/accounts/acct-123/ai/run");
+    expect(calls.find(c => c.tool === "set_value")!.args).toMatchObject({ element_token: "s00000001:1", value: "US" });
+
+    status = 402;
+    const refused = await run("desktop_act", { app: "Notes", steps: [{ op: "set_value", target: "country dropdown", value: "CA" }], observe: false });
+    expect(refused.isError).toBe(true);
+    expect(refused.text).toContain("jev_unavailable");
+    expect((await run("desktop_act", { app: "Notes", steps: [{ op: "set_value", target: "country dropdown", value: "CA" }], observe: false })).text).toContain("jev_off");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });
