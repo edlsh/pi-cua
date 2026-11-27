@@ -133,6 +133,42 @@ function finiteNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
+function applyDiffSnapshot(
+  prev: Snapshot,
+  snapshotId: string,
+  revision: number | undefined,
+  sinceStatus: string,
+  treeDiff: string,
+): Snapshot | undefined {
+  // Reindexed diffs can shift arbitrary indices; leave reconciliation to a full read when auto-diffing.
+  if (sinceStatus === "diff" && /^reindexed:/m.test(treeDiff)) return undefined;
+  const elements = new Map<number, { role?: string; label?: string; token?: string }>();
+  for (const [idx, entry] of prev.elements) {
+    elements.set(idx, { role: entry.role, label: entry.label, token: `${snapshotId}:${idx}` });
+  }
+  if (sinceStatus === "diff") {
+    for (const line of treeDiff.split("\n")) {
+      const removed = /^\s*-\s+\[(\d+)\]\b/.exec(line);
+      if (removed) { elements.delete(Number(removed[1])); continue; }
+      const updated = /^\s*[+~]\s+\[(\d+)\]\s+(\S+)(?:\s+(?:\(([^)]*)\)|"((?:[^"\\]|\\.)*)"))?/.exec(line);
+      if (updated) {
+        const idx = Number(updated[1]);
+        const role = updated[2];
+        const label = updated[3] ?? updated[4] ?? elements.get(idx)?.label;
+        elements.set(idx, { role, label, token: `${snapshotId}:${idx}` });
+      }
+    }
+  }
+  return {
+    pid: prev.pid,
+    windowId: prev.windowId,
+    snapshotId,
+    ...(revision !== undefined ? { revision } : prev.revision !== undefined ? { revision: prev.revision } : {}),
+    elements,
+    walk: prev.walk,
+  };
+}
+
 interface ToolCatalog {
   schemas: Map<string, string>;
   sessionTools: Map<string, boolean>;
@@ -276,15 +312,22 @@ export class DesktopBackend {
     if (typeof state.capture_id === "string") this.#captures.set(`${pid}:${windowId}`, state.capture_id);
     else this.#captures.delete(`${pid}:${windowId}`);
     // A screenshot-only walk still mints a snapshot, but with no elements; keep the last tree so indices stay usable.
-    if (args.include_accessibility_tree === false || typeof state.snapshot_id !== "string" || !Array.isArray(state.elements)) return;
-    // A diff/no_change response omits unchanged elements; avoid clobbering the stored element map with an empty array.
-    if ((state.since_status === "no_change" || state.since_status === "diff") && state.elements.length === 0) return;
+    if (args.include_accessibility_tree === false || typeof state.snapshot_id !== "string") return;
+    const revision = finiteNumber(state.ui_tree_revision);
+    // A diff/no_change response omits unchanged elements; update tokens to the new snapshot_id while keeping metadata.
+    if ((state.since_status === "no_change" || state.since_status === "diff") && (!Array.isArray(state.elements) || state.elements.length === 0)) {
+      const prev = this.#snapshots.get(`${pid}:${windowId}`);
+      if (!prev) return;
+      const merged = applyDiffSnapshot(prev, state.snapshot_id, revision, state.since_status, typeof state.tree_diff === "string" ? state.tree_diff : "");
+      if (merged) this.#snapshots.set(`${pid}:${windowId}`, merged);
+      return;
+    }
+    if (!Array.isArray(state.elements)) return;
     const elements = new Map<number, { role?: string; label?: string; token?: string }>();
     for (const element of state.elements) {
       if (typeof element?.element_index === "number") elements.set(element.element_index, { role: element.role, label: element.label, token: element.element_token });
     }
     const { include_screenshot: _image, max_image_dimension: _size, session: _session, since: _since, ...walk } = args;
-    const revision = finiteNumber(state.ui_tree_revision);
     this.#snapshots.set(`${pid}:${windowId}`, { pid, windowId, snapshotId: state.snapshot_id, ...(revision !== undefined ? { revision } : {}), elements, walk });
   }
 

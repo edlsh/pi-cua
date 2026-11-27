@@ -59,15 +59,15 @@
     "darwin"
   ],
   "dependencies": {
-    "@trycua/cua-driver": "0.61.3",
+    "@trycua/cua-driver": "0.64.2",
     "zod": "4.6.7"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "1.6.0",
-    "@earendil-works/pi-coding-agent": "1.6.0",
+    "@earendil-works/pi-ai": "1.7.0",
+    "@earendil-works/pi-coding-agent": "1.7.0",
     "@types/bun": "1.4.5",
     "sharp": "0.35.5",
     "typescript": "7.0.2"
