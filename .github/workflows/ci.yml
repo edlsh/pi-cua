@@ -14,12 +14,13 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify (Node ${{ matrix.node }})
+    name: Verify (Node ${{ matrix.node }}, Pi ${{ matrix.pi }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         node: ["22", "24"]
+        pi: ["1.5.0", "1.7.0"]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -39,8 +40,35 @@ jobs:
       - name: Install pinned development dependencies
         run: bun install --frozen-lockfile --ignore-scripts
 
-      - name: Typecheck
+      - name: Select minimum supported host
+        if: matrix.pi == '1.5.0'
+        run: bun add --dev --exact --ignore-scripts @earendil-works/pi-ai@1.5.0 @earendil-works/pi-coding-agent@1.5.0
+
+      - name: Verify types, tests, and package
         run: bun run check
 
-      - name: Unit tests
-        run: bun run test
+  macos:
+    name: Verify macOS (sips screenshot compression)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.5
+
+      - name: Install pinned development dependencies
+        run: bun install --frozen-lockfile --ignore-scripts
+
+      - name: Verify types, tests, and package
+        run: bun run check

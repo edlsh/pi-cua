@@ -48,9 +48,11 @@
     ]
   },
   "scripts": {
-    "check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "bun test test/extension.test.ts && node --test test/pi.test.mjs",
-    "test:live": "node --test test/live.test.mjs"
+    "test:live": "node --test test/live.test.mjs",
+    "check:package": "node scripts/check-package.mjs",
+    "check": "bun run typecheck && bun run test && bun run check:package"
   },
   "engines": {
     "node": ">=22.19.0"
