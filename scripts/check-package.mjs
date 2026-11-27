@@ -12,13 +12,8 @@ const expectedFiles = [
   "README.md",
   "package.json",
   "skills/desktop/SKILL.md",
-  "src/config.ts",
-  "src/driver.ts",
   "src/host.ts",
   "src/index.ts",
-  "src/jev.ts",
-  "src/render.ts",
-  "src/schema.ts",
 ];
 assert.deepEqual(tarball.files.map(({ path }) => path).sort(), expectedFiles.sort());
 console.log(`Package contents verified: ${tarball.files.length} files (${tarball.size} bytes packed)`);
