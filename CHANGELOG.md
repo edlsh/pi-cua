@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/edlsh/pi-cua/compare/v0.3.0...v0.3.1) (2026-11-28)
+
+
+### Performance Improvements
+
+* delegate shared desktop automation to @edlsh/cua-core ([86cbc1d](https://github.com/edlsh/pi-cua/commit/86cbc1d7908ec85b888fc0504b1e0ab0f26aa3ad))
+
 ## [0.3.0](https://github.com/edlsh/pi-cua/compare/v0.2.1...v0.3.0) (2026-11-28)
 
 
