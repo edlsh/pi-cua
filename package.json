@@ -61,7 +61,7 @@
     "darwin"
   ],
   "dependencies": {
-    "@edlsh/cua-core": "^0.2.0"
+    "@edlsh/cua-core": "^0.2.1"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*"
