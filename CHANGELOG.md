@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.0](https://github.com/edlsh/pi-cua/compare/v0.2.1...v0.3.0) (2026-11-28)
+
+
+### Features
+
+* add cua.json config, check:package, OMP test parity, and CI host/macOS matrix ([3c726b8](https://github.com/edlsh/pi-cua/commit/3c726b8079c855d092b93749a84a398e4e5c5f8e))
+* add diff reads, newer cua-driver step fields, health_report, and update deps ([e8494be](https://github.com/edlsh/pi-cua/commit/e8494be43c576f5db0f71ac72b41d7c3592915cf))
+
+
+### Bug Fixes
+
+* read daemon input_schema, dynamic session routing, JEV privacy and reconnect ([f3f7379](https://github.com/edlsh/pi-cua/commit/f3f73791c6f289eb46bc6606272eba3673bab02d))
+
 ## [0.2.1](https://github.com/edlsh/pi-cua/compare/v0.2.0...v0.2.1) (2026-11-24)
 
 
