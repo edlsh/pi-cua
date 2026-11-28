@@ -5,7 +5,7 @@
     "": {
       "name": "@edlsh/pi-cua",
       "dependencies": {
-        "@edlsh/cua-core": "^0.2.0",
+        "@edlsh/cua-core": "^0.2.1",
       },
       "devDependencies": {
         "@earendil-works/pi-ai": "1.7.0",
@@ -78,7 +78,7 @@
 
     "@earendil-works/pi-tui": ["@earendil-works/pi-tui@1.7.0", "", { "dependencies": { "get-east-asian-width": "1.6.0", "marked": "18.0.11", "marked-cjk-friendly": "0.1.2" } }, "sha512-C6vkUYGTeDdl/cMIbFOabSEPMRy9HuaUV76PS2BhvSmWifO5y8Rz8/LgFWqGIIFS7RMqu0gdeEpdXfH8jIp05g=="],
 
-    "@edlsh/cua-core": ["@edlsh/cua-core@0.2.0", "", { "dependencies": { "@trycua/cua-driver": "0.64.2", "zod": "4.6.7" }, "os": "darwin" }, "sha512-dlko8XogmSyamuZ6X/00HLWqg0M6D4ERyvyvoU48l+im+r97ZKK2Ef+4PShMdy3E6PNKLPQnlEtDeQctbUdGHw=="],
+    "@edlsh/cua-core": ["@edlsh/cua-core@0.2.1", "", { "dependencies": { "@trycua/cua-driver": "0.64.2", "zod": "4.6.7" } }, "sha512-R6aOLXSduCkZ0BXB+RZ6vghZtTdHz3NqL5phZaEi2Z5nFfiLFoqRvhlrspXxUdvc/x0jlA+odkVapFEDbuU9YQ=="],
 
     "@emnapi/runtime": ["@emnapi/runtime@1.11.3", "", { "dependencies": { "tslib": "^2.4.0" } }, "sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA=="],
 
